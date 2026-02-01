@@ -1,4 +1,4 @@
-name: Build Android App
+name: Easy Debug Build
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -18,14 +18,17 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Get Dependencies
-        run: flutter pub get
+      - name: Fix Android Permissions
+        run: chmod +x android/gradlew
 
-      - name: Build APK (Release)
-        run: flutter build apk --release --no-shrink
+      - name: Build Debug APK
+        run: |
+          flutter clean
+          flutter pub get
+          flutter build apk --debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: tijarati-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
