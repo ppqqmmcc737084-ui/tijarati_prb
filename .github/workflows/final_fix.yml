@@ -1,10 +1,10 @@
-name: Final Fix Build
+name: Build Android App
 on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v3
 
       - name: Setup Java
@@ -18,11 +18,8 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Install Dependencies
+      - name: Get Dependencies
         run: flutter pub get
-
-      - name: Fix Gradle Permissions
-        run: chmod +x android/gradlew
 
       - name: Build APK (Release)
         run: flutter build apk --release --no-shrink
@@ -30,5 +27,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:
-          name: my-app-release
+          name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
