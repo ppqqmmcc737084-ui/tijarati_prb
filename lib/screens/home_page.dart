@@ -1,3 +1,4 @@
+import 'cash_invoice.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart' as intl;
@@ -118,7 +119,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: _buildClientList()),
         ])))
       ]),
-      floatingActionButton: FloatingActionButton(backgroundColor: const Color(0xFFD81B60), onPressed: _addClient, child: const Icon(Icons.add, size: 30, color: Colors.white)),
+      floatingActionButton: Column(mainAxisAlignment: MainAxisAlignment.end, children: [FloatingActionButton(heroTag: "cash", backgroundColor: Colors.blue[800], child: Icon(Icons.calculate), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => CashInvoiceScreen()))), SizedBox(height: 15), FloatingActionButton(heroTag: "add",backgroundColor: const Color(0xFFD81B60), onPressed: _addClient, child: const Icon(Icons.add, size: 30, color: Colors.white))]),
     );
   }
 

@@ -13,7 +13,7 @@ dependencies:
   # 1. الأساسيات وقاعدة البيانات
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-  intl: ^0.19.0
+  intl: ^0.20.2
 
   # 2. الخطوط والتصميم (المفقودة في الخطأ)
   google_fonts: ^6.1.0
@@ -21,15 +21,17 @@ dependencies:
 
   # 3. الملفات والمشاركة والنسخ الاحتياطي (المفقودة في الخطأ)
   file_picker: ^8.0.0
-  share_plus: ^9.0.0
-  path_provider: ^2.1.2
+  share_plus: ^12.0.1
+  path_provider: ^2.1.5
 
   # 4. المميزات الجديدة (باركود، طباعة، بصمة، واتساب)
   mobile_scanner: ^5.1.0
-  pdf: ^3.10.8
-  printing: ^5.12.0
+  pdf: ^3.11.3
+  printing: ^5.14.2
   local_auth: ^2.1.6
   url_launcher: ^6.2.5
+  screenshot: ^3.0.0
+  shared_preferences: ^2.5.4
 
 dev_dependencies:
   flutter_test:
