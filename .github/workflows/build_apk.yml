@@ -1,23 +1,29 @@
-name: Build Android APK
-on:
-  push:
-    branches: [ main, master ]
+name: Build Fixed APK
+on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    
-    - uses: subosito/flutter-action@v2
-      with:
-        channel: 'stable' # استخدام أحدث نسخة مستقرة
-        cache: true
-    
-    - run: flutter pub get
-    - run: flutter build apk --release --no-tree-shake-icons
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v3
-      with:
-        name: app-release
-        path: build/app/outputs/flutter-apk/app-release.apk
+      - uses: actions/checkout@v3
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          
+      - name: Get Dependencies
+        run: flutter pub get
+        
+      - name: Build APK (Debug Version)
+        run: flutter build apk --debug --no-tree-shake-icons
+        
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: tijarati-app
+          path: build/app/outputs/flutter-apk/app-debug.apk
