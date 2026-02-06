@@ -1,4 +1,4 @@
-name: Build Debug APK
+name: Simple APK Build
 on: [push]
 jobs:
   build:
@@ -16,17 +16,14 @@ jobs:
         with:
           channel: 'stable'
           
-      - name: Fix Permissions
-        run: chmod +x android/gradlew
-        
       - name: Get Dependencies
         run: flutter pub get
-        
-      - name: Build APK (Debug)
-        run: flutter build apk --debug --no-tree-shake-icons
+
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
         
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:
-          name: tijarati-app-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: tijarati-final-app
+          path: build/app/outputs/flutter-apk/app-release.apk
