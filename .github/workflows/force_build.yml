@@ -1,4 +1,4 @@
-name: Make My App
+name: Force Debug APK
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -6,24 +6,23 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      # تجهيز الجافا
       - uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
           
-      # تجهيز Flutter
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           
-      # تحميل المكاتب
       - run: flutter pub get
       
-      # البناء (Debug) - هذا هو السر للنجاح
+      # ضمان تعديل الإصدار داخل السيرفر أيضاً
+      - run: sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+      
+      # بناء نسخة Debug (بدون توقيع - مضمونة العمل)
       - run: flutter build apk --debug --no-tree-shake-icons
       
-      # الرفع لك
       - uses: actions/upload-artifact@v3
         with:
           name: tijarati-app
