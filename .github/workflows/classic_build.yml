@@ -1,4 +1,4 @@
-name: Force Debug APK
+name: Classic Build
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -6,6 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
+      # استخدام جافا 17 (الأكثر استقراراً حالياً)
       - uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
@@ -17,13 +18,11 @@ jobs:
           
       - run: flutter pub get
       
-      # ضمان تعديل الإصدار داخل السيرفر أيضاً
-      - run: sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+      # أمر البناء البسيط (بدون توقيعات معقدة)
+      - run: flutter build apk --release --no-tree-shake-icons
       
-      # بناء نسخة Debug (بدون توقيع - مضمونة العمل)
-      - run: flutter build apk --debug --no-tree-shake-icons
-      
+      # الرفع
       - uses: actions/upload-artifact@v3
         with:
           name: tijarati-app
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
