@@ -1,24 +1,30 @@
-name: Debug Build
+name: Make My App
 on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
+      # تجهيز الجافا
       - uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
+          
+      # تجهيز Flutter
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      
+          
+      # تحميل المكاتب
       - run: flutter pub get
       
-      # هنا السر: نبني نسخة Debug بدلاً من Release
+      # البناء (Debug) - هذا هو السر للنجاح
       - run: flutter build apk --debug --no-tree-shake-icons
       
+      # الرفع لك
       - uses: actions/upload-artifact@v3
         with:
-          name: tijarati-debug
+          name: tijarati-app
           path: build/app/outputs/flutter-apk/app-debug.apk
