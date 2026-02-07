@@ -1,0 +1,32 @@
+name: Strong APK Build
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # استخدام جافا 17 (ضروري للنسخ الجديدة)
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
+      # إعداد Flutter
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          
+      - name: Install Dependencies
+        run: flutter pub get
+        
+      # بناء التطبيق (Release)
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
+        
+      # الرفع لك
+      - uses: actions/upload-artifact@v3
+        with:
+          name: tijarati-pro
+          path: build/app/outputs/flutter-apk/app-release.apk
