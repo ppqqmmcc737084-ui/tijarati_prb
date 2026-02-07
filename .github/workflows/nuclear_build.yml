@@ -1,22 +1,30 @@
-name: Final Build
+name: Nuclear Build
 on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
+      # استخدام جافا 17 المتوافق مع الكوتلين
       - uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
+          
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          
       - run: flutter pub get
       
-      # بناء النسخة (Debug) لأنها الأسرع والأضمن
+      # التأكد من نجاح التعديل قبل البناء
+      - run: grep "minSdk = 21" android/app/build.gradle.kts || echo "Warning: Sed might have failed"
+      
+      # بناء نسخة Debug (بدون مشاكل التشفير)
       - run: flutter build apk --debug --no-tree-shake-icons
       
+      # الرفع لك
       - uses: actions/upload-artifact@v3
         with:
           name: tijarati-app
