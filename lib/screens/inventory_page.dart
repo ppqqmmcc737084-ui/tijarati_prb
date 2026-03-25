@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart' as intl;
-import 'package:mobile_scanner/mobile_scanner.dart'; // ✅ مكتبة الكاميرا
+import 'package:mobile_scanner/mobile_scanner.dart'; 
+
+// ✅ استيراد مكتبات السحابة والمصادقة
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class InventoryPage extends StatefulWidget {
   const InventoryPage({super.key});
@@ -15,6 +19,9 @@ class _InventoryPageState extends State<InventoryPage> {
   String _searchText = "";
   final TextEditingController _searchController = TextEditingController();
 
+  // ✅ جلب الرقم التعريفي للتاجر (للوصول لخزنته الخاصة)
+  String get uid => FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
+
   // --- 📷 1. نظام الباركود والكاميرا ---
   void _openScanner({required Function(String) onDetect}) {
     showModalBottomSheet(
@@ -22,7 +29,7 @@ class _InventoryPageState extends State<InventoryPage> {
       isScrollControlled: true,
       backgroundColor: Colors.black,
       builder: (ctx) => SizedBox(
-        height: 450, // نصف الشاشة للكاميرا
+        height: 450, 
         child: Column(
           children: [
             AppBar(
@@ -36,8 +43,8 @@ class _InventoryPageState extends State<InventoryPage> {
                   final List<Barcode> barcodes = capture.barcodes;
                   if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
                     final code = barcodes.first.rawValue!;
-                    Navigator.pop(ctx); // إغلاق الكاميرا
-                    onDetect(code); // تنفيذ الأمر
+                    Navigator.pop(ctx); 
+                    onDetect(code); 
                   }
                 },
               ),
@@ -48,30 +55,32 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  // البيع السريع عبر الكاميرا
+  // ✅ البيع السريع عبر الكاميرا (تم ربطه بالسحابة)
   void _scanToSell() {
-    _openScanner(onDetect: (code) {
-      // البحث عن المنتج بهذا الباركود
-      final itemKey = box.keys.firstWhere((k) {
-        if (!k.toString().startsWith('inv_')) return false;
-        var item = box.get(k);
-        return item['barcode'] == code;
-      }, orElse: () => null);
-
-      if (itemKey != null) {
-        var item = box.get(itemKey);
-        _sellOne(itemKey.toString(), item);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Row(children: [const Icon(Icons.check_circle, color: Colors.white), const SizedBox(width: 10), Text("تم بيع 1 ${item['name']} بنجاح!")]),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ));
+    _openScanner(onDetect: (code) async {
+      // البحث عن المنتج بالباركود في السحابة
+      var query = await FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').where('barcode', isEqualTo: code).get();
+      
+      if (query.docs.isNotEmpty) {
+        var doc = query.docs.first;
+        var item = doc.data();
+        _sellOne(doc.id, item);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Row(children: [const Icon(Icons.check_circle, color: Colors.white), const SizedBox(width: 10), Text("تم بيع 1 ${item['name']} بنجاح!")]),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("⚠️ هذا المنتج غير مسجل! الكود: $code"),
-          backgroundColor: Colors.red,
-          action: SnackBarAction(label: "تسجيله؟", textColor: Colors.white, onPressed: () => _addItem(initialBarcode: code)),
-        ));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("⚠️ هذا المنتج غير مسجل! الكود: $code"),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(label: "تسجيله؟", textColor: Colors.white, onPressed: () => _addItem(initialBarcode: code)),
+          ));
+        }
       }
     });
   }
@@ -88,15 +97,13 @@ class _InventoryPageState extends State<InventoryPage> {
       title: const Text("إضافة صنف جديد"),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // حقل الباركود الذكي
           Row(children: [
             Expanded(child: TextField(controller: barcodeC, decoration: const InputDecoration(labelText: "الباركود", prefixIcon: Icon(Icons.qr_code)))),
             IconButton(
               icon: const Icon(Icons.camera_alt, color: Colors.blue),
               onPressed: () {
-                Navigator.pop(ctx); // إغلاق مؤقت
+                Navigator.pop(ctx); 
                 _openScanner(onDetect: (code) {
-                  // إعادة الفتح مع الكود
                   _addItem(initialBarcode: code); 
                 });
               }, 
@@ -113,7 +120,7 @@ class _InventoryPageState extends State<InventoryPage> {
         ]),
       ),
       actions: [
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white), onPressed: (){
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white), onPressed: () async {
           if(nameC.text.isNotEmpty) {
             final id = "inv_${DateTime.now().millisecondsSinceEpoch}";
             final item = {
@@ -124,9 +131,18 @@ class _InventoryPageState extends State<InventoryPage> {
               'sold': 0.0,
               'barcode': barcodeC.text
             };
-            box.put(id, item);
-            setState((){});
-            Navigator.pop(ctx);
+            
+            // 1. حفظ في الهاتف للسرعة
+            box.put(id, item); 
+            
+            // 2. حفظ في الخزنة السحابية الخاصة
+            try {
+              await FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').doc(id).set(item);
+            } catch (e) {
+              print(e);
+            }
+            
+            if (mounted) Navigator.pop(ctx);
           }
         }, child: const Text("حفظ"))
       ],
@@ -138,7 +154,13 @@ class _InventoryPageState extends State<InventoryPage> {
       padding: const EdgeInsets.all(20),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("تعديل الصنف"), onTap: (){ Navigator.pop(ctx); _showEditDialog(id, item); }),
-        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("حذف الصنف"), onTap: (){ Navigator.pop(ctx); box.delete(id); setState((){}); }),
+        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("حذف الصنف"), onTap: () async { 
+            Navigator.pop(ctx); 
+            box.delete(id); 
+            try {
+              await FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').doc(id).delete();
+            } catch (e) { print(e); }
+          }),
       ]),
     ));
   }
@@ -162,46 +184,48 @@ class _InventoryPageState extends State<InventoryPage> {
           Expanded(child: TextField(controller: sellC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "بيع"))),
         ]),
       ])),
-      actions: [ElevatedButton(onPressed: (){
-        item['name'] = nameC.text;
-        item['qty'] = double.tryParse(qtyC.text) ?? 0;
-        item['cost'] = double.tryParse(costC.text) ?? 0;
-        item['sell'] = double.tryParse(sellC.text) ?? 0;
-        item['barcode'] = barcodeC.text;
-        box.put(id, item);
-        setState((){});
-        Navigator.pop(ctx);
+      actions: [ElevatedButton(onPressed: () async {
+        Map<String, dynamic> updatedItem = Map.from(item);
+        updatedItem['name'] = nameC.text;
+        updatedItem['qty'] = double.tryParse(qtyC.text) ?? 0;
+        updatedItem['cost'] = double.tryParse(costC.text) ?? 0;
+        updatedItem['sell'] = double.tryParse(sellC.text) ?? 0;
+        updatedItem['barcode'] = barcodeC.text;
+        
+        box.put(id, updatedItem);
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').doc(id).update(updatedItem);
+        } catch (e) { print(e); }
+        
+        if (mounted) Navigator.pop(ctx);
       }, child: const Text("حفظ"))],
     ));
   }
 
-  void _sellOne(String id, Map item) {
+  void _sellOne(String id, Map item) async {
     double currentQty = double.tryParse(item['qty'].toString()) ?? 0;
     if(currentQty > 0) {
-      item['qty'] = currentQty - 1;
-      item['sold'] = (double.tryParse(item['sold'].toString()) ?? 0) + 1;
-      box.put(id, item);
-      setState((){});
+      double newQty = currentQty - 1;
+      double newSold = (double.tryParse(item['sold'].toString()) ?? 0) + 1;
+      
+      Map<String, dynamic> updatedItem = Map.from(item);
+      updatedItem['qty'] = newQty;
+      updatedItem['sold'] = newSold;
+      
+      box.put(id, updatedItem);
+      
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').doc(id).update({
+          'qty': newQty,
+          'sold': newSold
+        });
+      } catch (e) { print(e); }
     }
   }
 
-  // --- 3. الواجهة (محاسبية ونظيفة + زر الكاميرا) ---
+  // --- 3. الواجهة (محاسبية ونظيفة + زر الكاميرا + البث المباشر) ---
   @override
   Widget build(BuildContext context) {
-    final keys = box.keys.where((k) {
-      if (!k.toString().startsWith('inv_')) return false;
-      var item = box.get(k);
-      bool matchName = (item['name'] ?? "").toString().toLowerCase().contains(_searchText.toLowerCase());
-      bool matchCode = (item['barcode'] ?? "").toString().contains(_searchText);
-      return matchName || matchCode;
-    }).toList();
-
-    double totalCapital = 0;
-    for(var k in keys) {
-      var i = box.get(k);
-      totalCapital += (double.tryParse(i['qty'].toString()) ?? 0) * (double.tryParse(i['cost'].toString()) ?? 0);
-    }
-
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
@@ -210,7 +234,6 @@ class _InventoryPageState extends State<InventoryPage> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          // ✅ زر الكاميرا الأساسي في الأعلى
           IconButton(
             icon: const Icon(Icons.qr_code_scanner, size: 28),
             onPressed: _scanToSell,
@@ -219,79 +242,108 @@ class _InventoryPageState extends State<InventoryPage> {
           const SizedBox(width: 10),
         ],
       ),
-      body: Column(
-        children: [
-          // ✅ شريط المعلومات الرقمي (بدون بطاقة كبيرة)
-          Container(
-            padding: const EdgeInsets.all(15),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(child: _buildStatItem("الأصناف", "${keys.length}", Icons.category, Colors.blue)),
-                Container(width: 1, height: 40, color: Colors.grey[300]),
-                Expanded(child: _buildStatItem("رأس المال", fmt.format(totalCapital), Icons.monetization_on, Colors.indigo)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
+      // ✅ استبدال الواجهة القديمة بكاميرا بث مباشر تقرأ من السحابة الخاصة بالتاجر
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('inventory').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Color(0xFF1565C0)));
+          }
 
-          // البحث
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (val) => setState(() => _searchText = val),
-              decoration: InputDecoration(
-                hintText: "بحث (اسم أو باركود)...",
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code, color: Colors.blue), 
-                  onPressed: () => _openScanner(onDetect: (code){ 
-                    _searchController.text = code; 
-                    setState(() => _searchText = code); 
-                  }),
+          var docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
+
+          // حساب الإجمالي
+          double totalCapital = 0;
+          for (var doc in docs) {
+            var i = doc.data() as Map<String, dynamic>;
+            totalCapital += (double.tryParse(i['qty'].toString()) ?? 0) * (double.tryParse(i['cost'].toString()) ?? 0);
+          }
+
+          // الفلترة حسب البحث
+          var filteredDocs = docs.where((doc) {
+            var item = doc.data() as Map<String, dynamic>;
+            bool matchName = (item['name'] ?? "").toString().toLowerCase().contains(_searchText.toLowerCase());
+            bool matchCode = (item['barcode'] ?? "").toString().contains(_searchText);
+            return matchName || matchCode;
+          }).toList();
+
+          return Column(
+            children: [
+              // شريط المعلومات الرقمي
+              Container(
+                padding: const EdgeInsets.all(15),
+                color: Colors.white,
+                child: Row(
+                  children: [
+                    Expanded(child: _buildStatItem("الأصناف", "${docs.length}", Icons.category, Colors.blue)),
+                    Container(width: 1, height: 40, color: Colors.grey[300]),
+                    Expanded(child: _buildStatItem("رأس المال", fmt.format(totalCapital), Icons.monetization_on, Colors.indigo)),
+                  ],
                 ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                filled: true, fillColor: Colors.white
               ),
-            ),
-          ),
+              const SizedBox(height: 10),
 
-          // القائمة
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(15),
-              itemCount: keys.length,
-              itemBuilder: (ctx, i) {
-                final k = keys[i];
-                final item = box.get(k);
-                double qty = double.tryParse(item['qty'].toString()) ?? 0;
-                double sell = double.tryParse(item['sell'].toString()) ?? 0;
-
-                return Card(
-                  elevation: 2, margin: const EdgeInsets.only(bottom: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  child: ListTile(
-                    onLongPress: () => _editOrDeleteItem(k.toString(), item),
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
-                      child: Icon(item['barcode']!=null && item['barcode']!="" ? Icons.qr_code_2 : Icons.inventory_2, color: Colors.blue[800]),
+              // البحث
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 15),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (val) => setState(() => _searchText = val),
+                  decoration: InputDecoration(
+                    hintText: "بحث (اسم أو باركود)...",
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.qr_code, color: Colors.blue), 
+                      onPressed: () => _openScanner(onDetect: (code){ 
+                        _searchController.text = code; 
+                        setState(() => _searchText = code); 
+                      }),
                     ),
-                    title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text("الكمية: ${fmt.format(qty)}", style: TextStyle(color: qty<=5 ? Colors.red : Colors.grey[700], fontWeight: FontWeight.bold)),
-                    trailing: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                      onPressed: () => _sellOne(k.toString(), item),
-                      child: Text("بيع ${fmt.format(sell)}"),
-                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    filled: true, fillColor: Colors.white
                   ),
-                );
-              },
-            ),
-          ),
-        ],
+                ),
+              ),
+
+              // القائمة المتصلة بالسحابة
+              Expanded(
+                child: filteredDocs.isEmpty 
+                  ? const Center(child: Text("لا توجد أصناف", style: TextStyle(color: Colors.grey, fontSize: 16)))
+                  : ListView.builder(
+                  padding: const EdgeInsets.all(15),
+                  itemCount: filteredDocs.length,
+                  itemBuilder: (ctx, i) {
+                    final doc = filteredDocs[i];
+                    final item = doc.data() as Map<String, dynamic>;
+                    double qty = double.tryParse(item['qty'].toString()) ?? 0;
+                    double sell = double.tryParse(item['sell'].toString()) ?? 0;
+
+                    return Card(
+                      elevation: 2, margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: ListTile(
+                        onLongPress: () => _editOrDeleteItem(doc.id, item),
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
+                          child: Icon(item['barcode']!=null && item['barcode']!="" ? Icons.qr_code_2 : Icons.inventory_2, color: Colors.blue[800]),
+                        ),
+                        title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text("الكمية: ${fmt.format(qty)}", style: TextStyle(color: qty<=5 ? Colors.red : Colors.grey[700], fontWeight: FontWeight.bold)),
+                        trailing: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                          onPressed: () => _sellOne(doc.id, item),
+                          child: Text("بيع ${fmt.format(sell)}"),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        }
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addItem, 
