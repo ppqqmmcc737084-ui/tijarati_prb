@@ -1,31 +1,38 @@
-name: Nuclear Build
-on: [push, workflow_dispatch]
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      
-      # استخدام جافا 17 المتوافق مع الكوتلين
-      - uses: actions/setup-java@v3
+      - name: 📥 جلب كود المشروع
+        uses: actions/checkout@v4
+
+      - name: ☕ تجهيز الجافا
+        uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
-          
-      - uses: subosito/flutter-action@v2
+
+      - name: 🦋 تجهيز فلاتر
+        uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          
-      - run: flutter pub get
-      
-      # التأكد من نجاح التعديل قبل البناء
-      - run: grep "minSdk = 21" android/app/build.gradle.kts || echo "Warning: Sed might have failed"
-      
-      # بناء نسخة Debug (بدون مشاكل التشفير)
-      - run: flutter build apk --debug --no-tree-shake-icons
-      
-      # الرفع لك
-      - uses: actions/upload-artifact@v3
+
+      - name: 📦 تحميل المكتبات
+        run: flutter pub get
+
+      - name: 🔨 بناء التطبيق (النسخة المصغرة)
+        run: flutter build apk --split-per-abi
+
+      - name: 📤 رفع ملف التطبيق الجاهز
+        uses: actions/upload-artifact@v4
         with:
-          name: tijarati-app
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: Tijarati-Pro-APK
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
