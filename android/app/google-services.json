@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "756437740410",
+    "project_id": "tijarati-pro",
+    "storage_bucket": "tijarati-pro.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:756437740410:android:d7e2c354c3b00c5991c4c3",
+        "android_client_info": {
+          "package_name": "com.example.tijarati_prb"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "756437740410-0hi14olpfj9qm67h4tpmoa805i3jf7u8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tijarati_prb",
+            "certificate_hash": "6c952b86636cc5efeeb4dc6c138e49d00dbeefb8"
+          }
+        },
+        {
+          "client_id": "756437740410-8mdptagsdr8lvlqojeq6iv54oh5erilh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnx_8HjB2YMnx671DHLKSfR-pWeOFWQTI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "756437740410-8mdptagsdr8lvlqojeq6iv54oh5erilh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

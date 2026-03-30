@@ -15,11 +15,11 @@ dependencies:
   hive_flutter: ^1.1.0
   intl: ^0.20.2
 
-  # 2. الخطوط والتصميم (المفقودة في الخطأ)
+  # 2. الخطوط والتصميم
   google_fonts: ^6.1.0
   cupertino_icons: ^1.0.6
 
-  # 3. الملفات والمشاركة والنسخ الاحتياطي (المفقودة في الخطأ)
+  # 3. الملفات والمشاركة والنسخ الاحتياطي
   file_picker: ^8.0.0
   share_plus: ^12.0.1
   path_provider: ^2.1.5
@@ -49,15 +49,16 @@ dev_dependencies:
   flutter_launcher_icons: "^0.13.1"
   flutter_lints: ^3.0.0
 
-# إعدادات أيقونة التطبيق
+# ✅ إعدادات الأيقونة الصحيحة (لإلغاء المربع الأبيض وجعله أزرق فخم)
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/app_icon.jpg"
-  adaptive_icon_background: "#1565C0"
-  adaptive_icon_foreground: "assets/images/app_icon.jpg"
+  image_path: "assets/images/app_icon.png"
+  adaptive_icon_background: "#0D256C"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
+
+# ✅ إعدادات الصور والتصميم
 flutter:
   uses-material-design: true
-
   assets:
     - assets/images/

@@ -8,11 +8,9 @@ import 'settings_page.dart';
 import 'inventory_page.dart';
 import '../services/backup_service.dart';
 
-// مسارات ملفات التصميم
+import 'login_screen.dart'; 
 import '../widgets/custom_letter_icon.dart'; 
 import '../widgets/royal_card.dart'; 
-
-// استيراد حزمة السحابة
 import 'package:cloud_firestore/cloud_firestore.dart'; 
 
 class HomePage extends StatefulWidget {
@@ -32,14 +30,31 @@ class _HomePageState extends State<HomePage> {
   bool _isBalanceHidden = false;
   String _searchText = "";
 
-  // ✅ 1. تعريف "كاميرا السحابة" هنا لكي لا يتم إعادة إنشائها
   late Stream<QuerySnapshot> _clientsStream;
+
+  // ✅ الدالة السحرية لتحديد غرفة المستخدم (السحابية أو المحلية)
+  String get currentUserUid {
+    String? uid = box.get('user_uid');
+    if (uid != null && uid.isNotEmpty) return uid;
+    
+    // إذا لم يسجل رقمه، نصنع له غرفة برقم جهازه لضمان عدم اختلاط بياناته مع أحد
+    String? deviceId = box.get('device_id');
+    if (deviceId == null) {
+      deviceId = 'local_${DateTime.now().millisecondsSinceEpoch}';
+      box.put('device_id', deviceId);
+    }
+    return deviceId;
+  }
 
   @override
   void initState() {
     super.initState();
-    // ✅ 2. تشغيل الكاميرا والاتصال بالإنترنت "مرة واحدة فقط" عند فتح الشاشة
-    _clientsStream = FirebaseFirestore.instance.collection('clients').snapshots();
+    // ✅ توجيه الكاميرا إلى غرفة المستخدم الخاصة فقط!
+    _clientsStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUserUid)
+        .collection('clients')
+        .snapshots();
   }
 
   Map<String, double> _getDashboardStats(List<QueryDocumentSnapshot> docs, String currency) {
@@ -84,7 +99,8 @@ class _HomePageState extends State<HomePage> {
               TextButton(onPressed: ()=>Navigator.pop(dCtx), child: const Text("إلغاء")), 
               TextButton(onPressed: () async { 
                 box.delete(id); 
-                try { await FirebaseFirestore.instance.collection('clients').doc(id).delete(); } catch(e) { print(e); }
+                // ✅ حذف العميل من غرفة المستخدم الخاصة
+                try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); } catch(e) { print(e); }
                 setState((){}); 
                 Navigator.pop(dCtx); 
               }, child: const Text("حذف", style: TextStyle(color: Colors.red)))
@@ -104,7 +120,8 @@ class _HomePageState extends State<HomePage> {
           client['name'] = n.text; 
           client['phone'] = p.text; 
           box.put(id, client); 
-          try { await FirebaseFirestore.instance.collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); } catch (e) { print(e); }
+          // ✅ تحديث بيانات العميل في غرفة المستخدم الخاصة
+          try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); } catch (e) { print(e); }
           setState((){}); 
           Navigator.pop(ctx); 
         }, 
@@ -120,7 +137,7 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(elevation: 0, backgroundColor: const Color(0xFF1565C0), title: const Text("تجارتي برو", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white), actions: [IconButton(icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden))]),
       drawer: _buildDrawer(),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _clientsStream, // ✅ 3. هنا نستخدم الكاميرا المثبتة بدلاً من إنشاء واحدة جديدة
+        stream: _clientsStream, 
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: Colors.white));
@@ -178,7 +195,67 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildInfoChip(String label, String value) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)), const SizedBox(height: 4), Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))]));
 
-  Widget _buildDrawer() => Drawer(child: ListView(children: [UserAccountsDrawerHeader(decoration: const BoxDecoration(color: Color(0xFF1565C0)), accountName: Text(box.get('shop_name') ?? "تجارتي برو", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), accountEmail: const Text("الإصدار الماسي"), currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.store, color: Color(0xFF1565C0), size: 30))), ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClient();}), ListTile(leading: const Icon(Icons.description, color: Colors.teal), title: const Text("تقارير الديون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpensesPage()));}), ListTile(leading: const Icon(Icons.inventory, color: Colors.purple), title: const Text("إدارة المخزون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryPage()));}), const Divider(), ListTile(leading: const Icon(Icons.save, color: Colors.blue), title: const Text("حفظ نسخة احتياطية"), onTap: () => BackupService.createBackup(context)), ListTile(leading: const Icon(Icons.restore, color: Colors.orange), title: const Text("استرجاع نسخة"), onTap: () => BackupService.restoreBackup(context, () => setState((){}))), const Divider(), ListTile(leading: const Icon(Icons.settings, color: Colors.grey), title: const Text("الإعدادات"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));})]));
+  Widget _buildDrawer() {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero, 
+        children: [
+          DrawerHeader(
+            decoration: const BoxDecoration(
+              color: Color(0xFF0D256C), 
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(15),
+                  child: Image.asset(
+                    'assets/images/app_icon.png', // ✅ تم تعديل الامتداد إلى png ليعمل الشعار
+                    width: 70,
+                    height: 70,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'تجارتي برو',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Text(
+                  'الإصدار الماسي',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClient();}),
+          ListTile(leading: const Icon(Icons.description, color: Colors.teal), title: const Text("تقارير الديون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpensesPage()));}),
+          ListTile(leading: const Icon(Icons.inventory, color: Colors.purple), title: const Text("إدارة المخزون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryPage()));}),
+          const Divider(),
+          ListTile(leading: const Icon(Icons.save, color: Colors.blue), title: const Text("حفظ نسخة احتياطية"), onTap: () => BackupService.createBackup(context)),
+          ListTile(leading: const Icon(Icons.restore, color: Colors.orange), title: const Text("استرجاع نسخة"), onTap: () => BackupService.restoreBackup(context, () => setState((){}))),
+          const Divider(),
+          ListTile(leading: const Icon(Icons.settings, color: Colors.grey), title: const Text("الإعدادات"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));}),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.login, color: Colors.blueAccent),
+            title: const Text("تسجيل الدخول", style: TextStyle(fontWeight: FontWeight.bold)),
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())); 
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   int _getFilteredCount(List<QueryDocumentSnapshot> docs) {
     return docs.where((doc) { 
@@ -246,7 +323,12 @@ class _HomePageState extends State<HomePage> {
               if (n.text.isNotEmpty) {
                 String newId = DateTime.now().millisecondsSinceEpoch.toString();
                 box.put(newId, {'name': n.text, 'phone': p.text, 'currency': c, 'trans': []});
-                try { await FirebaseFirestore.instance.collection('clients').doc(newId).set({'name': n.text, 'phone': p.text, 'currency': c, 'trans': []}); } catch (e) { print(e); }
+                
+                // ✅ إضافة العميل الجديد إلى غرفة المستخدم الخاصة
+                try { 
+                  await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(newId).set({'name': n.text, 'phone': p.text, 'currency': c, 'trans': []}); 
+                } catch (e) { print(e); }
+                
                 setState(() {});
                 Navigator.pop(ctx);
               }

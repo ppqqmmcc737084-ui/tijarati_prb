@@ -3,8 +3,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart' as intl;
 import '../services/pdf_service.dart';
-
-// ✅ استيراد حزمة السحابة
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ClientDetail extends StatefulWidget {
@@ -18,38 +16,68 @@ class _ClientDetailState extends State<ClientDetail> {
   final Box box = Hive.box('tajarti_royal_v1');
   Map? client;
   List trans = [];
+  bool isLoading = true; 
+
+  // ✅ جلب هوية المستخدم لضمان الرفع للغرفة الصحيحة
+  String get currentUserUid {
+    String? uid = box.get('user_uid');
+    if (uid != null && uid.isNotEmpty) return uid;
+    return box.get('device_id') ?? 'local_user';
+  }
 
   @override
   void initState() {
     super.initState();
-    client = box.get(widget.id);
-    trans = List.from(client!['trans'] ?? []);
+    _loadClientData(); 
   }
 
-  // ✅ دالة حذف حركة دين أو سداد (محدثة للسحابة)
+  Future<void> _loadClientData() async {
+    var localData = box.get(widget.id);
+    if (localData != null) {
+      setState(() {
+        client = localData;
+        trans = List.from(client!['trans'] ?? []);
+        isLoading = false;
+      });
+    } else {
+      try {
+        var doc = await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(widget.id).get();
+        if (doc.exists) {
+          setState(() {
+            client = doc.data() as Map<String, dynamic>;
+            trans = List.from(client!['trans'] ?? []);
+            box.put(widget.id, client!); 
+            isLoading = false;
+          });
+        } else {
+          setState(() => isLoading = false);
+        }
+      } catch (e) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
   void _deleteTransaction(int index) {
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("حذف الحركة"),
       content: const Text("هل تريد حذف هذا القيد؟ لا يمكن التراجع."),
       actions: [
         TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("إلغاء")),
-        TextButton(onPressed: () async {
-          // 1. الحذف من الذاكرة المحلية
+        TextButton(onPressed: () {
+          // الحذف محلياً والتحديث فوراً
           setState(() {
-            trans.removeAt(trans.length - 1 - index); // حذف حسب الترتيب المعكوس
+            trans.removeAt(trans.length - 1 - index); 
             client!['trans'] = trans;
             box.put(widget.id, client!);
           });
           Navigator.pop(ctx);
 
-          // 2. الحذف من السحابة (Firebase)
-          try {
-            await FirebaseFirestore.instance.collection('clients').doc(widget.id).update({
-              'trans': trans
-            });
-          } catch (e) {
-            print("خطأ في حذف القيد من السحابة: $e");
-          }
+          // الحذف من السحابة في الخلفية (في الغرفة الصحيحة ✅)
+          FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(widget.id).update({
+            'trans': trans
+          }).catchError((e) => print(e));
+          
         }, child: const Text("حذف", style: TextStyle(color: Colors.red))),
       ],
     ));
@@ -71,7 +99,6 @@ class _ClientDetailState extends State<ClientDetail> {
 
   void _printStatement(bool share) { final noteC = TextEditingController(); showDialog(context: context, builder: (ctx) => AlertDialog(title: Text(share?"مشاركة":"طباعة"), content: TextField(controller: noteC, decoration: const InputDecoration(labelText: "ملاحظة")), actions: [ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white), onPressed: () { Navigator.pop(ctx); PdfService.generateStatement(client!, trans, noteC.text); }, child: const Text("تأكيد"))])); }
 
-  // ✅ دالة إضافة دين أو سداد (محدثة للسحابة)
   void _addTrans(String type) { 
     final noteC=TextEditingController(); 
     final priceC=TextEditingController(); 
@@ -85,7 +112,7 @@ class _ClientDetailState extends State<ClientDetail> {
       actions: [
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white), 
-          onPressed: () async { 
+          onPressed: () { 
             double finalAmount=type=='out'?(quantity*unitPrice):(double.tryParse(priceC.text)??0); 
             if(finalAmount>0){ 
               var newTrans = {
@@ -96,21 +123,17 @@ class _ClientDetailState extends State<ClientDetail> {
                 'date':DateTime.now().toString()
               };
 
-              // 1. الحفظ في الذاكرة المحلية
+              // 1. الحفظ محلياً وتحديث الشاشة فوراً 🚀
               trans.add(newTrans); 
               client!['trans']=trans; 
               box.put(widget.id, client!); 
-              this.setState((){}); 
+              setState((){}); 
               Navigator.pop(ctx); 
 
-              // 2. الرفع المباشر للسحابة (Firebase)
-              try {
-                await FirebaseFirestore.instance.collection('clients').doc(widget.id).update({
-                  'trans': trans
-                });
-              } catch (e) {
-                print("خطأ في رفع القيد للسحابة: $e");
-              }
+              // 2. الرفع للغرفة الخاصة في السحابة ✅
+              FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(widget.id).update({
+                'trans': trans
+              }).catchError((e) => print(e));
             } 
           }, 
           child: const Text("حفظ")
@@ -121,8 +144,11 @@ class _ClientDetailState extends State<ClientDetail> {
 
   @override
   Widget build(BuildContext context) {
-    if(client==null)return const Scaffold(body: Center(child: Text("خطأ")));
+    if (isLoading) return Scaffold(backgroundColor: Colors.white, appBar: AppBar(backgroundColor: const Color(0xFF1565C0)), body: const Center(child: CircularProgressIndicator(color: Color(0xFF1565C0))));
+    if(client == null) return Scaffold(appBar: AppBar(backgroundColor: const Color(0xFF1565C0)), body: const Center(child: Text("لم يتم العثور على العميل", style: TextStyle(fontSize: 18))));
+
     double balance=0; for(var t in trans) balance+=(t['type']=='out'?1:-1)*(double.tryParse(t['amt'].toString())??0);
+    
     return Scaffold(backgroundColor: Colors.grey[50], appBar: AppBar(backgroundColor: const Color(0xFF1565C0), iconTheme: const IconThemeData(color: Colors.white), title: Text(client!['name'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)), actions: [IconButton(icon: const Icon(Icons.share, color: Colors.white), onPressed: ()=>_printStatement(true)), IconButton(icon: const Icon(Icons.print, color: Colors.white), onPressed: ()=>_printStatement(false)), IconButton(icon: const Icon(Icons.chat, color: Colors.white), onPressed: ()=>_showWhatsAppOptions(balance))]), body: Column(children: [Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 20), decoration: const BoxDecoration(color: Color(0xFF1565C0), borderRadius: BorderRadius.vertical(bottom: Radius.circular(20))), child: Column(children: [Text("الرصيد الحالي", style: TextStyle(color: Colors.blue[100])), Text("${intl.NumberFormat("#,##0").format(balance.abs())} ${client!['currency']}", style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)), Text(balance>=0?"عليه (مدين)":"له (دائن)", style: const TextStyle(color: Colors.white70))])), Expanded(child: ListView.builder(padding: const EdgeInsets.all(15), itemCount: trans.length, itemBuilder: (ctx, i){ var t=trans[trans.length-1-i]; bool isDebt=t['type']=='out'; return Card(margin: const EdgeInsets.only(bottom: 10), child: ListTile(
       onLongPress: () => _deleteTransaction(i),
       leading: CircleAvatar(backgroundColor: isDebt?Colors.red[50]:Colors.green[50], child: Icon(isDebt?Icons.arrow_upward:Icons.arrow_downward, color: isDebt?Colors.red:Colors.green)), title: Text(t['note'], style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(t['qty']!=null?"العدد: ${t['qty']} | ${t['date'].substring(0,10)}":t['date'].substring(0,10)), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("${t['amt']}", style: TextStyle(color: isDebt?Colors.red[700]:Colors.green[700], fontWeight: FontWeight.bold)), IconButton(icon: const Icon(Icons.share, size: 20, color: Colors.blue), onPressed: ()=>PdfService.shareTransaction(client!, t))]))); }))]), bottomNavigationBar: Padding(padding: const EdgeInsets.all(20), child: Row(children: [Expanded(child: FloatingActionButton.extended(heroTag: "b1", backgroundColor: const Color(0xFFD32F2F), icon: const Icon(Icons.remove, color: Colors.white), label: const Text("دين", style: TextStyle(color: Colors.white)), onPressed: ()=>_addTrans('out'))), const SizedBox(width: 20), Expanded(child: FloatingActionButton.extended(heroTag: "b2", backgroundColor: const Color(0xFF388E3C), icon: const Icon(Icons.add, color: Colors.white), label: const Text("سداد", style: TextStyle(color: Colors.white)), onPressed: ()=>_addTrans('in')))])));
