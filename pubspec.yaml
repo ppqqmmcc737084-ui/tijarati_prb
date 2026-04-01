@@ -40,22 +40,21 @@ dependencies:
   googleapis_auth: ^2.0.0
   archive: ^4.0.9
   extension_google_sign_in_as_googleapis_auth: ^3.0.0
+  fl_chart: ^0.66.0
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   
-  # 5. تغيير أيقونة التطبيق
-  flutter_launcher_icons: "^0.13.1"
+  flutter_launcher_icons: ^0.13.1
   flutter_lints: ^3.0.0
 
-# ✅ إعدادات الأيقونة الصحيحة (لإلغاء المربع الأبيض وجعله أزرق فخم)
+# ✅ إعدادات الأيقونة الأصلية حقك
 flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/app_icon.png"
-  adaptive_icon_background: "#0D256C"
-  adaptive_icon_foreground: "assets/images/app_icon.png"
 
 # ✅ إعدادات الصور والتصميم
 flutter:

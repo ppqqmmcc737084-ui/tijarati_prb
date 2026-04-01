@@ -13,6 +13,12 @@ import '../widgets/custom_letter_icon.dart';
 import '../widgets/royal_card.dart'; 
 import 'package:cloud_firestore/cloud_firestore.dart'; 
 
+// ✅ استدعاء الصفحات الجديدة
+import 'reports_page.dart'; 
+import 'smart_invoice_page.dart';
+// ✅ استدعاء صفحة سجل فواتير الكاش
+import 'cash_invoices_history_page.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -30,14 +36,11 @@ class _HomePageState extends State<HomePage> {
   bool _isBalanceHidden = false;
   String _searchText = "";
 
-  late Stream<QuerySnapshot> _clientsStream;
-
   // ✅ الدالة السحرية لتحديد غرفة المستخدم (السحابية أو المحلية)
   String get currentUserUid {
     String? uid = box.get('user_uid');
     if (uid != null && uid.isNotEmpty) return uid;
     
-    // إذا لم يسجل رقمه، نصنع له غرفة برقم جهازه لضمان عدم اختلاط بياناته مع أحد
     String? deviceId = box.get('device_id');
     if (deviceId == null) {
       deviceId = 'local_${DateTime.now().millisecondsSinceEpoch}';
@@ -49,19 +52,28 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // ✅ توجيه الكاميرا إلى غرفة المستخدم الخاصة فقط!
-    _clientsStream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUserUid)
-        .collection('clients')
-        .snapshots();
   }
 
-  Map<String, double> _getDashboardStats(List<QueryDocumentSnapshot> docs, String currency) {
+  // ✅ جلب العملاء من الذاكرة المحلية (لتحديث الشاشة فوراً)
+  List<Map<String, dynamic>> _getClientsFromHive() {
+    List<Map<String, dynamic>> clients = [];
+    for (var key in box.keys) {
+      if (!['user_uid', 'device_id', 'shop_name', 'app_password', 'is_password_enabled', 'is_fingerprint_enabled'].contains(key)) {
+        var data = box.get(key);
+        if (data is Map) {
+          var clientMap = Map<String, dynamic>.from(data);
+          clientMap['id'] = key.toString(); // دمج الآيدي مع البيانات
+          clients.add(clientMap);
+        }
+      }
+    }
+    return clients;
+  }
+
+  Map<String, double> _getDashboardStats(List<Map<String, dynamic>> clients, String currency) {
     double totalDebt = 0;
     int clientCount = 0;
-    for (var doc in docs) {
-      var c = doc.data() as Map<String, dynamic>;
+    for (var c in clients) {
       if ((c['currency'] ?? 'ريال يمني') == currency) {
         clientCount++;
         if (c['trans'] != null) {
@@ -74,10 +86,9 @@ class _HomePageState extends State<HomePage> {
     return {'debt': totalDebt, 'count': clientCount.toDouble()};
   }
 
-  Map<String, double> _getData(List<QueryDocumentSnapshot> docs, String currency) { 
+  Map<String, double> _getData(List<Map<String, dynamic>> clients, String currency) { 
     double toMe=0, onMe=0; 
-    for(var doc in docs){ 
-      var c = doc.data() as Map<String, dynamic>;
+    for(var c in clients){ 
       if((c['currency']??'ريال يمني')==currency && c['trans']!=null){ 
         for(var t in c['trans']){ 
           double amt=double.tryParse(t['amt'].toString())??0; 
@@ -99,9 +110,7 @@ class _HomePageState extends State<HomePage> {
               TextButton(onPressed: ()=>Navigator.pop(dCtx), child: const Text("إلغاء")), 
               TextButton(onPressed: () async { 
                 box.delete(id); 
-                // ✅ حذف العميل من غرفة المستخدم الخاصة
-                try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); } catch(e) { print(e); }
-                setState((){}); 
+                try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); } catch(e) { debugPrint(e.toString()); }
                 Navigator.pop(dCtx); 
               }, child: const Text("حذف", style: TextStyle(color: Colors.red)))
             ]));
@@ -120,9 +129,7 @@ class _HomePageState extends State<HomePage> {
           client['name'] = n.text; 
           client['phone'] = p.text; 
           box.put(id, client); 
-          // ✅ تحديث بيانات العميل في غرفة المستخدم الخاصة
-          try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); } catch (e) { print(e); }
-          setState((){}); 
+          try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); } catch (e) { debugPrint(e.toString()); }
           Navigator.pop(ctx); 
         }, 
         child: const Text("حفظ التعديلات")
@@ -134,17 +141,27 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1565C0),
-      appBar: AppBar(elevation: 0, backgroundColor: const Color(0xFF1565C0), title: const Text("تجارتي برو", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white), actions: [IconButton(icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden))]),
+      appBar: AppBar(
+        elevation: 0, 
+        backgroundColor: const Color(0xFF1565C0), 
+        title: const Text("تجارتي برو", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)), 
+        centerTitle: true, 
+        iconTheme: const IconThemeData(color: Colors.white), 
+        actions: [
+          IconButton(icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden)),
+          Padding(
+            padding: const EdgeInsets.only(right: 15),
+            child: Image.network("https://raw.githubusercontent.com/googleworkspace/workspace-google_gen/main/src/workspace_google_gen/data/sample_images/tajarti_royal/logo_old_small_main_nav.png", width: 30, height: 30),
+          ),
+        ]
+      ),
       drawer: _buildDrawer(),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _clientsStream, 
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.white));
-          }
-
-          var docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
-          var stats = _getDashboardStats(docs, selectedCurrency);
+      body: ValueListenableBuilder(
+        valueListenable: box.listenable(), 
+        builder: (context, Box box, _) {
+          
+          var allClients = _getClientsFromHive();
+          var stats = _getDashboardStats(allClients, selectedCurrency);
 
           return Column(children: [
             Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), child: Row(children: [Expanded(child: _buildInfoChip("إجمالي الديون (لك)", _isBalanceHidden ? "****" : intl.NumberFormat.compact().format(stats['debt']))), const SizedBox(width: 10), Expanded(child: _buildInfoChip("عدد العملاء", "${stats['count']!.toInt()}"))])),
@@ -171,7 +188,7 @@ class _HomePageState extends State<HomePage> {
                      child: RoyalCard(
                        currency: currencies[i],
                        isBalanceHidden: _isBalanceHidden,
-                       netBalance: _getData(docs, currencies[i])['net'] ?? 0.0,
+                       netBalance: _getData(allClients, currencies[i])['net'] ?? 0.0,
                        shopName: box.get('shop_name') ?? "المتجر",
                      ),
                    );
@@ -183,8 +200,8 @@ class _HomePageState extends State<HomePage> {
             
             Expanded(child: Container(decoration: const BoxDecoration(color: Color(0xFFF5F5F5), borderRadius: BorderRadius.vertical(top: Radius.circular(30))), child: Column(children: [
               Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 5), child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)), child: TextField(controller: _searchController, onChanged: (val) => setState(() => _searchText = val), decoration: const InputDecoration(hintText: "بحث عن عميل...", prefixIcon: Icon(Icons.search, color: Color(0xFF1565C0)), border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15))))),
-              Padding(padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10), child: Row(children: [Text("قائمة العملاء ($selectedCurrency)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)), const Spacer(), Text("${_getFilteredCount(docs)} عميل", style: const TextStyle(color: Colors.grey, fontSize: 12))])),
-              Expanded(child: _buildClientList(docs)),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10), child: Row(children: [Text("قائمة العملاء ($selectedCurrency)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)), const Spacer(), Text("${_getFilteredCount(allClients)} عميل", style: const TextStyle(color: Colors.grey, fontSize: 12))])),
+              Expanded(child: _buildClientList(allClients)),
             ])))
           ]);
         }
@@ -210,7 +227,7 @@ class _HomePageState extends State<HomePage> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(15),
                   child: Image.asset(
-                    'assets/images/app_icon.png', // ✅ تم تعديل الامتداد إلى png ليعمل الشعار
+                    'assets/images/app_icon.png', 
                     width: 70,
                     height: 70,
                     fit: BoxFit.cover,
@@ -225,19 +242,43 @@ class _HomePageState extends State<HomePage> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const Text(
-                  'الإصدار الماسي',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
+                // ✅ اختفت كلمة الإصدار الماسي من هنا تماماً
               ],
             ),
           ),
           ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClient();}),
-          ListTile(leading: const Icon(Icons.description, color: Colors.teal), title: const Text("تقارير الديون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpensesPage()));}),
+          
+          ListTile(
+            leading: const Icon(Icons.analytics, color: Colors.teal), 
+            title: const Text("الجرود والتقارير"), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsPage()));
+            }
+          ),
+          
           ListTile(leading: const Icon(Icons.inventory, color: Colors.purple), title: const Text("إدارة المخزون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryPage()));}),
+          
+          // 🔥 زر الفاتورة الذكية
+          ListTile(
+            leading: const Icon(Icons.bolt, color: Colors.orange), 
+            title: const Text("الفاتورة السريعة (الذكية)"), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SmartInvoicePage()));
+            }
+          ),
+
+          // ✅ زر سجل الكاش الجديد
+          ListTile(
+            leading: const Icon(Icons.receipt_long, color: Colors.green), 
+            title: const Text("سجل فواتير الكاش", style: TextStyle(fontWeight: FontWeight.bold)), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const CashInvoicesHistoryPage()));
+            }
+          ),
+          
           const Divider(),
           ListTile(leading: const Icon(Icons.save, color: Colors.blue), title: const Text("حفظ نسخة احتياطية"), onTap: () => BackupService.createBackup(context)),
           ListTile(leading: const Icon(Icons.restore, color: Colors.orange), title: const Text("استرجاع نسخة"), onTap: () => BackupService.restoreBackup(context, () => setState((){}))),
@@ -257,21 +298,19 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  int _getFilteredCount(List<QueryDocumentSnapshot> docs) {
-    return docs.where((doc) { 
-      var c = doc.data() as Map<String, dynamic>; 
+  int _getFilteredCount(List<Map<String, dynamic>> clients) {
+    return clients.where((c) { 
       return (c['currency']??'ريال يمني')==selectedCurrency && (c['name']??"").toLowerCase().contains(_searchText.toLowerCase()); 
     }).length;
   }
   
-  Widget _buildClientList(List<QueryDocumentSnapshot> allClients) {
+  Widget _buildClientList(List<Map<String, dynamic>> allClients) {
     if (allClients.isEmpty) return const Center(child: Text("لا يوجد عملاء حتى الآن", style: TextStyle(color: Colors.grey, fontSize: 16)));
 
-    var filteredClients = allClients.where((doc) {
-      var data = doc.data() as Map<String, dynamic>;
-      String c = data['currency'] ?? 'ريال يمني';
-      String n = data['name'] ?? '';
-      return c == selectedCurrency && n.toLowerCase().contains(_searchText.toLowerCase());
+    var filteredClients = allClients.where((c) {
+      String curr = c['currency'] ?? 'ريال يمني';
+      String n = c['name'] ?? '';
+      return curr == selectedCurrency && n.toLowerCase().contains(_searchText.toLowerCase());
     }).toList();
 
     if (filteredClients.isEmpty) return const Center(child: Text("لا يوجد عملاء مطابقين للبحث", style: TextStyle(color: Colors.grey)));
@@ -280,9 +319,8 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
       itemCount: filteredClients.length,
       itemBuilder: (ctx, i) {
-        var doc = filteredClients[i];
-        var client = doc.data() as Map<String, dynamic>;
-        String id = doc.id; 
+        var client = filteredClients[i];
+        String id = client['id']; 
 
         double bal = 0;
         if (client['trans'] != null) {
@@ -297,7 +335,7 @@ class _HomePageState extends State<HomePage> {
           elevation: 2, margin: const EdgeInsets.only(bottom: 10), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)), 
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClientDetail(id: id))).then((_) => setState(() {})),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClientDetail(id: id))),
             onLongPress: () => _editOrDeleteClient(id, client),
             leading: Stack(children: [CustomLetterIcon(letter: firstChar), if(isLate) const Positioned(right: 0, top: 0, child: CircleAvatar(radius: 5, backgroundColor: Colors.red))]), 
             title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), 
@@ -322,14 +360,13 @@ class _HomePageState extends State<HomePage> {
             onPressed: () async {
               if (n.text.isNotEmpty) {
                 String newId = DateTime.now().millisecondsSinceEpoch.toString();
+                
                 box.put(newId, {'name': n.text, 'phone': p.text, 'currency': c, 'trans': []});
                 
-                // ✅ إضافة العميل الجديد إلى غرفة المستخدم الخاصة
                 try { 
                   await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(newId).set({'name': n.text, 'phone': p.text, 'currency': c, 'trans': []}); 
-                } catch (e) { print(e); }
+                } catch (e) { debugPrint(e.toString()); }
                 
-                setState(() {});
                 Navigator.pop(ctx);
               }
             },

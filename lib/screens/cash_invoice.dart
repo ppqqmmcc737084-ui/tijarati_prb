@@ -118,7 +118,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
   void _checkout() async {
     if (_cart.isEmpty) return;
 
-    showDialog(context: context, barrierDismissible: false, builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFF1565C0))));
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFF0D256C))));
 
     for (var cartItem in _cart) {
       String id = cartItem['id'];
@@ -139,11 +139,9 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
 
         // الحفظ في السحابة (Firebase) ليعمل التزامن التلقائي
         try {
-          // بما أننا ألغينا تسجيل الدخول، سنحفظ في مسار عام مؤقت (أو مسار المخزون الذي حددناه)
-          // ملاحظة: إذا كنت تستخدم uid، استخدمه هنا. أما الآن سنستخدم مساراً مباشراً.
           await FirebaseFirestore.instance.collection('inventory_global').doc(id).set(Map<String, dynamic>.from(dbItem));
         } catch (e) {
-          print("Cloud Sync Error: $e");
+          debugPrint("Cloud Sync Error: $e");
         }
       }
     }
@@ -169,7 +167,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
         backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
           title: const Text("فاتورة نقدية", style: TextStyle(fontWeight: FontWeight.bold)),
-          backgroundColor: const Color(0xFF1565C0),
+          backgroundColor: const Color(0xFF0D256C), // تم التعديل للأزرق الملكي
           foregroundColor: Colors.white,
           elevation: 0,
           actions: [
@@ -198,7 +196,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                             onPressed: _openScanner,
                             icon: const Icon(Icons.qr_code_scanner),
                             label: const Text("امسح منتج للبدء"),
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C), foregroundColor: Colors.white), // تم التعديل للأزرق الملكي
                           )
                         ],
                       ),
@@ -243,7 +241,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                                 // الإجمالي الفرعي
                                 Text(
                                   fmt.format(item['sell'] * item['cartQty']),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1565C0), fontSize: 16),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D256C), fontSize: 16), // تم التعديل للأزرق الملكي
                                 ),
                               ],
                             ),
@@ -277,7 +275,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                       height: 55,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1565C0),
+                          backgroundColor: const Color(0xFF0D256C), // تم التعديل للأزرق الملكي
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                         ),
