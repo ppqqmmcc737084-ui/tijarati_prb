@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert'; // ✅ ضروري لفك تشفير الصورة
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:screenshot/screenshot.dart';
@@ -77,7 +78,6 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
     });
   }
 
-  // 🔥 دالة الحفظ المستقل للكاش والمشاركة
   void _saveAndShareInvoice() async {
     if (_parsedItems.isEmpty) return;
 
@@ -87,10 +87,14 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
     if (clientName.isEmpty) clientName = "عميل نقدي";
     String phone = _phoneController.text.trim();
 
-    // 1️⃣ تخزين الفاتورة كـ "سجل كاش مستقل" وليس كعميل دين
+    int lastInvoiceNum = box.get('last_cash_invoice_number', defaultValue: 1000);
+    int newInvoiceNum = lastInvoiceNum + 1;
+    box.put('last_cash_invoice_number', newInvoiceNum); 
+
     String invoiceId = 'cash_inv_${DateTime.now().millisecondsSinceEpoch}';
     Map<String, dynamic> invoiceData = {
       'type': 'cash_invoice',
+      'invoiceNumber': newInvoiceNum, 
       'clientName': clientName,
       'phone': phone,
       'total': _grandTotal,
@@ -98,10 +102,8 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
       'date': DateTime.now().toString(),
     };
 
-    // حفظ محلي في قسم الكاش
     box.put(invoiceId, invoiceData);
 
-    // حفظ سحابي في غرفة خاصة بالكاش (بعيداً عن العملاء)
     try {
       String uid = box.get('user_uid') ?? box.get('device_id') ?? 'local_user';
       await FirebaseFirestore.instance.collection('users').doc(uid).collection('cash_invoices').doc(invoiceId).set(invoiceData);
@@ -109,26 +111,25 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
       debugPrint("Firebase Sync Error: $e");
     }
 
-    // 2️⃣ التقاط الصورة ومشاركتها
     try {
       final imageBytes = await _screenshotController.capture(delay: const Duration(milliseconds: 50));
       setState(() => _isCapturing = false);
 
       if (imageBytes != null) {
         if (kIsWeb) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("✅ تم تخزين الفاتورة النقدية بنجاح في السجل المستقل!"),
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("✅ تم حفظ الفاتورة النقدية بنجاح! رقمها: #$newInvoiceNum"),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ));
         } else {
           final directory = await getApplicationDocumentsDirectory();
-          final imagePath = await File('${directory.path}/smart_invoice.png').create();
+          final imagePath = await File('${directory.path}/smart_invoice_$newInvoiceNum.png').create();
           await imagePath.writeAsBytes(imageBytes);
 
           await Share.shareXFiles(
             [XFile(imagePath.path)], 
-            text: "فاتورة مبيعات نقدية - $clientName\nإجمالي المبلغ: ${fmt.format(_grandTotal)}",
+            text: "فاتورة مبيعات نقدية رقم #$newInvoiceNum\nالعميل: $clientName\nإجمالي المبلغ: ${fmt.format(_grandTotal)} ريال",
           );
         }
       }
@@ -138,10 +139,29 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
     }
   }
 
+  // ✅ الدالة الذكية لعرض الشعار المخصص أو الافتراضي
+  Widget _buildInvoiceLogo() {
+    String? customLogo = box.get('custom_logo');
+    if (customLogo != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.memory(
+          base64Decode(customLogo),
+          width: 50,
+          height: 50,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else {
+      return Image.asset('assets/images/app_icon.png', width: 40, height: 40);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     String shopName = box.get('shop_name') ?? "المتجر";
     String currentDate = intl.DateFormat('yyyy/MM/dd - hh:mm a').format(DateTime.now());
+    int currentExpectedNum = box.get('last_cash_invoice_number', defaultValue: 1000) + 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -226,19 +246,26 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
                       children: [
                         Row(
                           children: [
-                            Image.asset('assets/images/app_icon.png', width: 40, height: 40),
+                            _buildInvoiceLogo(), // ✅ استدعاء الشعار هنا
                             const SizedBox(width: 10),
                             Text(shopName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0D256C))),
                           ],
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(5)),
-                          child: const Text("فاتورة نقدية", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(5)),
+                              child: const Text("فاتورة نقدية", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 5),
+                            Text("رقم: #$currentExpectedNum", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ],
                         )
                       ],
                     ),
-                    const Divider(thickness: 2, height: 30),
+                    const Divider(thickness: 2, height: 20),
                     
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -330,8 +357,10 @@ class _SmartInvoicePageState extends State<SmartInvoicePage> {
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             ),
-            // الزر الآن يصور ويخزن في سجل الكاش المستقل
-            onPressed: _parsedItems.isEmpty ? null : _saveAndShareInvoice,
+            onPressed: _parsedItems.isEmpty ? null : () {
+              _saveAndShareInvoice();
+              Navigator.pop(context);
+            },
             icon: const Icon(Icons.save_alt),
             label: const Text("تخزين الكاش وإصدار الفاتورة", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ),

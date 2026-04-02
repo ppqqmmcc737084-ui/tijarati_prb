@@ -43,8 +43,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 borderRadius: BorderRadius.circular(24), 
                 child: Image.asset(
                   'assets/images/app_icon.png', 
-                  width: 120, 
-                  height: 120, 
+                  width: 80, 
+                  height: 80, 
                   fit: BoxFit.cover,
                 ),
               ),
@@ -59,7 +59,6 @@ class _SplashScreenState extends State<SplashScreen> {
                 letterSpacing: 1.5,
               ),
             ),
-            // ✅ تم حذف كلمة الإصدار الماسي من هنا
             const SizedBox(height: 50),
             const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),

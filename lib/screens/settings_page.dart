@@ -1,7 +1,10 @@
+import 'dart:convert'; // ✅ للتحويل لصيغة نصية Base64
+import 'dart:typed_data'; // ✅ للتعامل مع بايتات الصورة
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ تم إضافة مكتبة الفايربيس
+import 'package:cloud_firestore/cloud_firestore.dart'; 
+import 'package:file_picker/file_picker.dart'; // ✅ مكتبة اختيار الملفات والصور
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -14,7 +17,28 @@ class _SettingsPageState extends State<SettingsPage> {
   final Box box = Hive.box('tajarti_royal_v1');
   final LocalAuthentication auth = LocalAuthentication();
 
-  // ✅ دالة تغيير اسم المتجر
+  // ✅ دالة اختيار الشعار الجديد
+  void _pickLogo() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true, // ✅ مهم جداً عشان يشتغل على الويب والجوال بنفس الكفاءة
+    );
+
+    if (result != null && result.files.first.bytes != null) {
+      Uint8List fileBytes = result.files.first.bytes!;
+      String base64Image = base64Encode(fileBytes); // تحويل الصورة لنص لحفظها
+      
+      box.put('custom_logo', base64Image);
+      
+      setState(() {}); 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("تم حفظ الشعار الجديد بنجاح!"), backgroundColor: Colors.green)
+        );
+      }
+    }
+  }
+
   void _changeStoreName(BuildContext context) {
     final TextEditingController nameCtrl = TextEditingController(text: box.get('shop_name', defaultValue: ''));
     showDialog(
@@ -30,7 +54,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C)),
             onPressed: () {
-              box.put('shop_name', nameCtrl.text); // حفظ الاسم في الذاكرة
+              box.put('shop_name', nameCtrl.text); 
               setState(() {}); 
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ اسم المتجر بنجاح', textAlign: TextAlign.right), backgroundColor: Colors.green));
@@ -147,11 +171,67 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    String? customLogo = box.get('custom_logo'); // جلب الشعار المحفوظ
+
     return Scaffold(
       appBar: AppBar(title: const Text('الإعدادات', style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF0D256C), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white)),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          // 🌟 قسم الشعار المخصص (الجديد)
+          Card(
+            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: Padding(
+              padding: const EdgeInsets.all(15.0),
+              child: Column(
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.image, color: Color(0xFF0D256C), size: 30),
+                      SizedBox(width: 15),
+                      Text('شعار المتجر (للفواتير)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ],
+                  ),
+                  const SizedBox(height: 15),
+                  GestureDetector(
+                    onTap: _pickLogo,
+                    child: CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.grey[200],
+                      backgroundImage: customLogo != null 
+                          ? MemoryImage(base64Decode(customLogo)) 
+                          : null,
+                      child: customLogo == null 
+                          ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey) 
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _pickLogo, 
+                        icon: const Icon(Icons.edit), 
+                        label: const Text("اختيار شعار")
+                      ),
+                      if (customLogo != null)
+                        TextButton.icon(
+                          onPressed: () { 
+                            box.delete('custom_logo'); 
+                            setState(() {}); 
+                          },
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          label: const Text("حذف الشعار", style: TextStyle(color: Colors.red))
+                        ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
           // زر بيانات المتجر
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
@@ -178,7 +258,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 10),
 
-          // ✅ زر رفع البيانات القديمة للسحابة
+          // زر رفع البيانات القديمة للسحابة
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             child: ListTile(
@@ -188,22 +268,18 @@ class _SettingsPageState extends State<SettingsPage> {
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () async {
                 String? uid = box.get('user_uid');
-                // التحقق هل هو مسجل دخول أم لا
                 if (uid == null || uid.startsWith('local_')) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يجب تسجيل الدخول أو إنشاء حساب أولاً!', textAlign: TextAlign.right), backgroundColor: Colors.red));
                   return;
                 }
                 
-                // عملية الرفع
                 int count = 0;
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري الرفع... يرجى الانتظار', textAlign: TextAlign.right), backgroundColor: Colors.blue));
                 
                 for (var key in box.keys) {
-                  // نتجاهل مفاتيح الإعدادات ونأخذ بيانات العملاء فقط
-                  if (key != 'user_uid' && key != 'device_id' && key != 'shop_name' && key != 'app_password' && key != 'is_password_enabled' && key != 'is_fingerprint_enabled') {
+                  if (key != 'user_uid' && key != 'device_id' && key != 'shop_name' && key != 'app_password' && key != 'is_password_enabled' && key != 'is_fingerprint_enabled' && key != 'custom_logo') { // أضفنا custom_logo للتجاهل
                     var data = box.get(key);
                     if (data is Map) {
-                      // رفع العميل للسحابة
                       await FirebaseFirestore.instance
                           .collection('users')
                           .doc(uid)

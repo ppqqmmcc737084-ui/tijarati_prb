@@ -52,17 +52,79 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // ✅ تشغيل التنبيه بعد فتح الشاشة مباشرة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkLoginStatus();
+    });
   }
 
-  // ✅ جلب العملاء من الذاكرة المحلية (لتحديث الشاشة فوراً)
+  // ✅ الدالة الذكية اللي تفحص وتطلع رسالة (بدون إزعاج مستمر)
+  void _checkLoginStatus() {
+    String? uid = box.get('user_uid');
+    bool hideWarning = box.get('hide_guest_warning', defaultValue: false);
+    
+    // إذا كان زائر + وما قد ضغط على زر "لا تذكرني"
+    if ((uid == null || uid.isEmpty || uid.startsWith('local_')) && !hideWarning) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 30),
+              SizedBox(width: 10),
+              Text("تنبيه هام!", style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: const Text(
+            "أنت تستخدم التطبيق كزائر محلي. \n\nلتجنب فقدان بياناتك في حال حذف التطبيق، يرجى إنشاء حساب لضمان حفظ فواتيرك وبيانات عملائك في السحابة.",
+            style: TextStyle(fontSize: 16, height: 1.5),
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            // زر إسكات التنبيه للأبد
+            TextButton(
+              onPressed: () {
+                box.put('hide_guest_warning', true); // حفظ أمر الإسكات
+                Navigator.pop(ctx); 
+              }, 
+              child: const Text("لا تذكرني", style: TextStyle(color: Colors.red))
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx), 
+                  child: const Text("لاحقاً", style: TextStyle(color: Colors.grey))
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D256C),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx); 
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())); 
+                  },
+                  child: const Text("تسجيل", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            )
+          ],
+        )
+      );
+    }
+  }
+
+  // ✅ جلب العملاء من الذاكرة المحلية
   List<Map<String, dynamic>> _getClientsFromHive() {
     List<Map<String, dynamic>> clients = [];
     for (var key in box.keys) {
-      if (!['user_uid', 'device_id', 'shop_name', 'app_password', 'is_password_enabled', 'is_fingerprint_enabled'].contains(key)) {
+      if (!['user_uid', 'device_id', 'shop_name', 'app_password', 'is_password_enabled', 'is_fingerprint_enabled', 'custom_logo', 'last_cash_invoice_number', 'hide_guest_warning'].contains(key)) {
         var data = box.get(key);
         if (data is Map) {
           var clientMap = Map<String, dynamic>.from(data);
-          clientMap['id'] = key.toString(); // دمج الآيدي مع البيانات
+          clientMap['id'] = key.toString(); 
           clients.add(clientMap);
         }
       }
@@ -151,7 +213,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden)),
           Padding(
             padding: const EdgeInsets.only(right: 15),
-            child: Image.network("https://raw.githubusercontent.com/googleworkspace/workspace-google_gen/main/src/workspace_google_gen/data/sample_images/tajarti_royal/logo_old_small_main_nav.png", width: 30, height: 30),
+            child: Image.asset("assets/images/app_icon.png", width: 30, height: 30), // استخدمت الأيقونة المحلية بدلاً من رابط النت
           ),
         ]
       ),
@@ -242,7 +304,6 @@ class _HomePageState extends State<HomePage> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                // ✅ اختفت كلمة الإصدار الماسي من هنا تماماً
               ],
             ),
           ),
@@ -259,7 +320,6 @@ class _HomePageState extends State<HomePage> {
           
           ListTile(leading: const Icon(Icons.inventory, color: Colors.purple), title: const Text("إدارة المخزون"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryPage()));}),
           
-          // 🔥 زر الفاتورة الذكية
           ListTile(
             leading: const Icon(Icons.bolt, color: Colors.orange), 
             title: const Text("الفاتورة السريعة (الذكية)"), 
@@ -269,7 +329,6 @@ class _HomePageState extends State<HomePage> {
             }
           ),
 
-          // ✅ زر سجل الكاش الجديد
           ListTile(
             leading: const Icon(Icons.receipt_long, color: Colors.green), 
             title: const Text("سجل فواتير الكاش", style: TextStyle(fontWeight: FontWeight.bold)), 
