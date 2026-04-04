@@ -9,34 +9,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. جلب الأكواد بأحدث إصدار
+    # 1. الخطوة السحرية: إعطاء صلاحية الأمان لـ Git لحل الخطأ 128
+    - name: Set Git Safe Directory
+      run: git config --global --add safe.directory '*'
+
+    # 2. جلب الأكواد
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    # 2. إعداد بيئة جافا (محدث لـ v4 لتجنب التحذيرات)
+    # 3. إعداد بيئة جافا
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
         java-version: '17'
 
-    # 3. إعداد بيئة فلاتر
+    # 4. إعداد بيئة فلاتر
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
         channel: 'stable'
 
-    # 4. جلب المكتبات
+    # 5. جلب المكتبات
     - name: Get dependencies
       run: flutter pub get
 
-    # 5. بناء التطبيق (النسخة النهائية)
+    # 6. بناء التطبيق (النسخة النهائية)
     - name: Build APK
       run: flutter build apk --release
 
-    # 6. رفع التطبيق للتحميل بأحدث أداة v4
+    # 7. رفع التطبيق للتحميل
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
