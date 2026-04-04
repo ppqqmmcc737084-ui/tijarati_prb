@@ -13,11 +13,13 @@ import '../widgets/custom_letter_icon.dart';
 import '../widgets/royal_card.dart'; 
 import 'package:cloud_firestore/cloud_firestore.dart'; 
 
-// ✅ استدعاء الصفحات الجديدة
 import 'reports_page.dart'; 
 import 'smart_invoice_page.dart';
-// ✅ استدعاء صفحة سجل فواتير الكاش
 import 'cash_invoices_history_page.dart';
+
+// ✅ استدعاء الصفحات الجديدة (المنيو والكاشير السريع)
+import 'manage_products_page.dart';
+import 'pos_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -36,7 +38,6 @@ class _HomePageState extends State<HomePage> {
   bool _isBalanceHidden = false;
   String _searchText = "";
 
-  // ✅ الدالة السحرية لتحديد غرفة المستخدم (السحابية أو المحلية)
   String get currentUserUid {
     String? uid = box.get('user_uid');
     if (uid != null && uid.isNotEmpty) return uid;
@@ -52,18 +53,15 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // ✅ تشغيل التنبيه بعد فتح الشاشة مباشرة
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLoginStatus();
     });
   }
 
-  // ✅ الدالة الذكية اللي تفحص وتطلع رسالة (بدون إزعاج مستمر)
   void _checkLoginStatus() {
     String? uid = box.get('user_uid');
     bool hideWarning = box.get('hide_guest_warning', defaultValue: false);
     
-    // إذا كان زائر + وما قد ضغط على زر "لا تذكرني"
     if ((uid == null || uid.isEmpty || uid.startsWith('local_')) && !hideWarning) {
       showDialog(
         context: context,
@@ -82,10 +80,9 @@ class _HomePageState extends State<HomePage> {
           ),
           actionsAlignment: MainAxisAlignment.spaceBetween,
           actions: [
-            // زر إسكات التنبيه للأبد
             TextButton(
               onPressed: () {
-                box.put('hide_guest_warning', true); // حفظ أمر الإسكات
+                box.put('hide_guest_warning', true);
                 Navigator.pop(ctx); 
               }, 
               child: const Text("لا تذكرني", style: TextStyle(color: Colors.red))
@@ -116,11 +113,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ✅ جلب العملاء من الذاكرة المحلية
   List<Map<String, dynamic>> _getClientsFromHive() {
     List<Map<String, dynamic>> clients = [];
+    List<String> settingsKeys = [
+      'user_uid', 'device_id', 'shop_name', 'app_password', 
+      'is_password_enabled', 'is_fingerprint_enabled', 
+      'custom_logo', 'last_cash_invoice_number', 
+      'hide_guest_warning', 'store_unique_prefix', 
+      'pos_products' // ✅ تأكدنا من استثناء منتجات المنيو من الظهور كعميل
+    ];
+
     for (var key in box.keys) {
-      if (!['user_uid', 'device_id', 'shop_name', 'app_password', 'is_password_enabled', 'is_fingerprint_enabled', 'custom_logo', 'last_cash_invoice_number', 'hide_guest_warning'].contains(key)) {
+      if (!settingsKeys.contains(key.toString())) {
         var data = box.get(key);
         if (data is Map) {
           var clientMap = Map<String, dynamic>.from(data);
@@ -140,7 +144,9 @@ class _HomePageState extends State<HomePage> {
         clientCount++;
         if (c['trans'] != null) {
           double bal = 0;
-          for (var t in c['trans']) bal += (t['type'] == 'out' ? 1 : -1) * (double.tryParse(t['amt'].toString()) ?? 0);
+          for (var t in c['trans']) {
+            bal += (t['type'] == 'out' ? 1 : -1) * (double.tryParse(t['amt'].toString()) ?? 0);
+          }
           if (bal > 0) totalDebt += bal;
         }
       }
@@ -162,41 +168,85 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _editOrDeleteClient(String id, Map client) {
-    showModalBottomSheet(context: context, builder: (ctx) => Container(
-      padding: const EdgeInsets.all(20),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("تعديل بيانات العميل"), onTap: () {Navigator.pop(ctx); _showEditClientDialog(id, client);}),
-        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("حذف العميل نهائياً"), onTap: () {
-            Navigator.pop(ctx);
-            showDialog(context: context, builder: (dCtx) => AlertDialog(title: const Text("تأكيد الحذف"), content: const Text("سيتم حذف العميل وكل ديونه. هل أنت متأكد؟"), actions: [
-              TextButton(onPressed: ()=>Navigator.pop(dCtx), child: const Text("إلغاء")), 
-              TextButton(onPressed: () async { 
-                box.delete(id); 
-                try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); } catch(e) { debugPrint(e.toString()); }
-                Navigator.pop(dCtx); 
-              }, child: const Text("حذف", style: TextStyle(color: Colors.red)))
-            ]));
-          }) 
-      ]),
-    ));
+    showModalBottomSheet(
+      context: context, 
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, 
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit, color: Colors.blue), 
+              title: const Text("تعديل بيانات العميل"), 
+              onTap: () {
+                Navigator.pop(ctx); 
+                _showEditClientDialog(id, client);
+              }
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red), 
+              title: const Text("حذف العميل نهائياً"), 
+              onTap: () {
+                Navigator.pop(ctx);
+                showDialog(
+                  context: context, 
+                  builder: (dCtx) => AlertDialog(
+                    title: const Text("تأكيد الحذف"), 
+                    content: const Text("سيتم حذف العميل وكل ديونه. هل أنت متأكد؟"), 
+                    actions: [
+                      TextButton(onPressed: ()=>Navigator.pop(dCtx), child: const Text("إلغاء")), 
+                      TextButton(
+                        onPressed: () async { 
+                          box.delete(id); 
+                          try { 
+                            await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); 
+                          } catch(e) { debugPrint(e.toString()); }
+                          Navigator.pop(dCtx); 
+                        }, 
+                        child: const Text("حذف", style: TextStyle(color: Colors.red))
+                      )
+                    ]
+                  )
+                );
+              }
+            ) 
+          ]
+        ),
+      )
+    );
   }
 
   void _showEditClientDialog(String id, Map client) {
     final n = TextEditingController(text: client['name']);
     final p = TextEditingController(text: client['phone']);
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("تعديل العميل"), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: n, decoration: const InputDecoration(labelText: "الاسم")), TextField(controller: p, decoration: const InputDecoration(labelText: "الهاتف"))]), actions: [
-      ElevatedButton(
-        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white),
-        onPressed: () async { 
-          client['name'] = n.text; 
-          client['phone'] = p.text; 
-          box.put(id, client); 
-          try { await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); } catch (e) { debugPrint(e.toString()); }
-          Navigator.pop(ctx); 
-        }, 
-        child: const Text("حفظ التعديلات")
+    showDialog(
+      context: context, 
+      builder: (ctx) => AlertDialog(
+        title: const Text("تعديل العميل"), 
+        content: Column(
+          mainAxisSize: MainAxisSize.min, 
+          children: [
+            TextField(controller: n, decoration: const InputDecoration(labelText: "الاسم")), 
+            TextField(controller: p, decoration: const InputDecoration(labelText: "الهاتف"))
+          ]
+        ), 
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white),
+            onPressed: () async { 
+              client['name'] = n.text; 
+              client['phone'] = p.text; 
+              box.put(id, client); 
+              try { 
+                await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); 
+              } catch (e) { debugPrint(e.toString()); }
+              Navigator.pop(ctx); 
+            }, 
+            child: const Text("حفظ التعديلات")
+          )
+        ]
       )
-    ]));
+    );
   }
 
   @override
@@ -210,10 +260,13 @@ class _HomePageState extends State<HomePage> {
         centerTitle: true, 
         iconTheme: const IconThemeData(color: Colors.white), 
         actions: [
-          IconButton(icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden)),
+          IconButton(
+            icon: Icon(_isBalanceHidden ? Icons.visibility_off : Icons.visibility, color: Colors.white), 
+            onPressed: () => setState(() => _isBalanceHidden = !_isBalanceHidden)
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 15),
-            child: Image.asset("assets/images/app_icon.png", width: 30, height: 30), // استخدمت الأيقونة المحلية بدلاً من رابط النت
+            child: Image.asset("assets/images/app_icon.png", width: 30, height: 30),
           ),
         ]
       ),
@@ -225,54 +278,154 @@ class _HomePageState extends State<HomePage> {
           var allClients = _getClientsFromHive();
           var stats = _getDashboardStats(allClients, selectedCurrency);
 
-          return Column(children: [
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), child: Row(children: [Expanded(child: _buildInfoChip("إجمالي الديون (لك)", _isBalanceHidden ? "****" : intl.NumberFormat.compact().format(stats['debt']))), const SizedBox(width: 10), Expanded(child: _buildInfoChip("عدد العملاء", "${stats['count']!.toInt()}"))])),
-            
-            SizedBox(
-              height: 220, 
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: (i) => setState(() => _currentIndex = i),
-                itemCount: currencies.length,
-                itemBuilder: (ctx, i) {
-                   return AnimatedBuilder(
-                     animation: _pageController,
-                     builder: (context, child) {
-                       double value = 1.0;
-                       if (_pageController.position.haveDimensions) {
-                         value = _pageController.page! - i;
-                         value = (1 - (value.abs() * 0.1)).clamp(0.9, 1.0);
-                       } else {
-                         value = i == _currentIndex ? 1.0 : 0.9;
-                       }
-                       return Center(child: SizedBox(height: Curves.easeOut.transform(value) * 220, width: Curves.easeOut.transform(value) * 400, child: child));
-                     },
-                     child: RoyalCard(
-                       currency: currencies[i],
-                       isBalanceHidden: _isBalanceHidden,
-                       netBalance: _getData(allClients, currencies[i])['net'] ?? 0.0,
-                       shopName: box.get('shop_name') ?? "المتجر",
-                     ),
-                   );
-                }
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), 
+                child: Row(
+                  children: [
+                    Expanded(child: _buildInfoChip("إجمالي الديون (لك)", _isBalanceHidden ? "****" : intl.NumberFormat.compact().format(stats['debt']))), 
+                    const SizedBox(width: 10), 
+                    Expanded(child: _buildInfoChip("عدد العملاء", "${stats['count']!.toInt()}"))
+                  ]
+                )
               ),
-            ),
-
-            Padding(padding: const EdgeInsets.only(top: 10, bottom: 10), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(currencies.length, (index) { bool isActive = _currentIndex == index; return AnimatedContainer(duration: const Duration(milliseconds: 300), margin: const EdgeInsets.symmetric(horizontal: 4), height: 8, width: isActive ? 24 : 8, decoration: BoxDecoration(color: isActive ? Colors.white : Colors.white.withOpacity(0.3), borderRadius: BorderRadius.circular(4))); }))),
             
-            Expanded(child: Container(decoration: const BoxDecoration(color: Color(0xFFF5F5F5), borderRadius: BorderRadius.vertical(top: Radius.circular(30))), child: Column(children: [
-              Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 5), child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)), child: TextField(controller: _searchController, onChanged: (val) => setState(() => _searchText = val), decoration: const InputDecoration(hintText: "بحث عن عميل...", prefixIcon: Icon(Icons.search, color: Color(0xFF1565C0)), border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15))))),
-              Padding(padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10), child: Row(children: [Text("قائمة العملاء ($selectedCurrency)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)), const Spacer(), Text("${_getFilteredCount(allClients)} عميل", style: const TextStyle(color: Colors.grey, fontSize: 12))])),
-              Expanded(child: _buildClientList(allClients)),
-            ])))
-          ]);
+              SizedBox(
+                height: 220, 
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (i) => setState(() => _currentIndex = i),
+                  itemCount: currencies.length,
+                  itemBuilder: (ctx, i) {
+                     return AnimatedBuilder(
+                       animation: _pageController,
+                       builder: (context, child) {
+                         double value = 1.0;
+                         if (_pageController.position.haveDimensions) {
+                           value = _pageController.page! - i;
+                           value = (1 - (value.abs() * 0.1)).clamp(0.9, 1.0);
+                         } else {
+                           value = i == _currentIndex ? 1.0 : 0.9;
+                         }
+                         return Center(
+                           child: SizedBox(
+                             height: Curves.easeOut.transform(value) * 220, 
+                             width: Curves.easeOut.transform(value) * 400, 
+                             child: child
+                           )
+                         );
+                       },
+                       child: RoyalCard(
+                         currency: currencies[i],
+                         isBalanceHidden: _isBalanceHidden,
+                         netBalance: _getData(allClients, currencies[i])['net'] ?? 0.0,
+                         shopName: box.get('shop_name') ?? "المتجر",
+                       ),
+                     );
+                  }
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 10), 
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center, 
+                  children: List.generate(currencies.length, (index) { 
+                    bool isActive = _currentIndex == index; 
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 300), 
+                      margin: const EdgeInsets.symmetric(horizontal: 4), 
+                      height: 8, 
+                      width: isActive ? 24 : 8, 
+                      decoration: BoxDecoration(
+                        color: isActive ? Colors.white : Colors.white.withOpacity(0.3), 
+                        borderRadius: BorderRadius.circular(4)
+                      )
+                    ); 
+                  })
+                )
+              ),
+            
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF5F5F5), 
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(30))
+                  ), 
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 5), 
+                        child: Container(
+                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)), 
+                          child: TextField(
+                            controller: _searchController, 
+                            onChanged: (val) => setState(() => _searchText = val), 
+                            decoration: const InputDecoration(
+                              hintText: "بحث عن عميل...", 
+                              prefixIcon: Icon(Icons.search, color: Color(0xFF1565C0)), 
+                              border: InputBorder.none, 
+                              contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                            )
+                          )
+                        )
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10), 
+                        child: Row(
+                          children: [
+                            Text("قائمة العملاء ($selectedCurrency)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)), 
+                            const Spacer(), 
+                            Text("${_getFilteredCount(allClients)} عميل", style: const TextStyle(color: Colors.grey, fontSize: 12))
+                          ]
+                        )
+                      ),
+                      Expanded(child: _buildClientList(allClients)),
+                    ]
+                  )
+                )
+              )
+            ]
+          );
         }
       ),
-      floatingActionButton: Column(mainAxisAlignment: MainAxisAlignment.end, children: [FloatingActionButton(heroTag: "cash", backgroundColor: Colors.blue[800], child: const Icon(Icons.calculate), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => CashInvoiceScreen()))), const SizedBox(height: 15), FloatingActionButton(heroTag: "add",backgroundColor: const Color(0xFFD81B60), onPressed: _addClient, child: const Icon(Icons.add, size: 30, color: Colors.white))]),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end, 
+        children: [
+          FloatingActionButton(
+            heroTag: "cash", 
+            backgroundColor: Colors.blue[800], 
+            child: const Icon(Icons.calculate), 
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => const CashInvoiceScreen()))
+          ), 
+          const SizedBox(height: 15), 
+          FloatingActionButton(
+            heroTag: "add",
+            backgroundColor: const Color(0xFFD81B60), 
+            onPressed: _addClient, 
+            child: const Icon(Icons.add, size: 30, color: Colors.white)
+          )
+        ]
+      ),
     );
   }
 
-  Widget _buildInfoChip(String label, String value) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)), const SizedBox(height: 4), Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))]));
+  Widget _buildInfoChip(String label, String value) => Container(
+    padding: const EdgeInsets.all(12), 
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.15), 
+      borderRadius: BorderRadius.circular(12)
+    ), 
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, 
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)), 
+        const SizedBox(height: 4), 
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))
+      ]
+    )
+  );
 
   Widget _buildDrawer() {
     return Drawer(
@@ -307,8 +460,33 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
+          
           ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClient();}),
           
+          // 🌟 إضافة أزرار نظام نقاط البيع الجديد
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+            child: Text("نظام المطاعم والكافيهات", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.touch_app, color: Colors.blue), 
+            title: const Text("الكاشير السريع (نقطة البيع)", style: TextStyle(fontWeight: FontWeight.bold)), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PosScreen()));
+            }
+          ),
+          ListTile(
+            leading: const Icon(Icons.fastfood, color: Colors.orange), 
+            title: const Text("إدارة المنتجات (المنيو)"), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageProductsPage()));
+            }
+          ),
+          const Divider(),
+
           ListTile(
             leading: const Icon(Icons.analytics, color: Colors.teal), 
             title: const Text("الجرود والتقارير"), 
@@ -331,7 +509,7 @@ class _HomePageState extends State<HomePage> {
 
           ListTile(
             leading: const Icon(Icons.receipt_long, color: Colors.green), 
-            title: const Text("سجل فواتير الكاش", style: TextStyle(fontWeight: FontWeight.bold)), 
+            title: const Text("سجل فواتير الكاش"), 
             onTap: () {
               Navigator.pop(context); 
               Navigator.push(context, MaterialPageRoute(builder: (_) => const CashInvoicesHistoryPage()));
@@ -391,15 +569,30 @@ class _HomePageState extends State<HomePage> {
         bool isLate = bal >= 50000;
         
         return Card(
-          elevation: 2, margin: const EdgeInsets.only(bottom: 10), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)), 
+          elevation: 2, 
+          margin: const EdgeInsets.only(bottom: 10), 
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)), 
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClientDetail(id: id))),
             onLongPress: () => _editOrDeleteClient(id, client),
-            leading: Stack(children: [CustomLetterIcon(letter: firstChar), if(isLate) const Positioned(right: 0, top: 0, child: CircleAvatar(radius: 5, backgroundColor: Colors.red))]), 
+            leading: Stack(
+              children: [
+                CustomLetterIcon(letter: firstChar), 
+                if(isLate) const Positioned(right: 0, top: 0, child: CircleAvatar(radius: 5, backgroundColor: Colors.red))
+              ]
+            ), 
             title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), 
-            trailing: Text(_isBalanceHidden ? "****" : intl.NumberFormat("#,##0").format(bal.abs()), style: TextStyle(color: bal >= 0 ? const Color(0xFFD81B60) : Colors.green, fontWeight: FontWeight.bold, fontSize: 16))
-        ));
+            trailing: Text(
+              _isBalanceHidden ? "****" : intl.NumberFormat("#,##0").format(bal.abs()), 
+              style: TextStyle(
+                color: bal >= 0 ? const Color(0xFFD81B60) : Colors.green, 
+                fontWeight: FontWeight.bold, 
+                fontSize: 16
+              )
+            )
+          )
+        );
       }
     );
   }
@@ -412,7 +605,18 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("عميل جديد"),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: n, decoration: const InputDecoration(labelText: "الاسم")), TextField(controller: p, decoration: const InputDecoration(labelText: "الهاتف")), DropdownButtonFormField<String>(value: c, items: currencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => c = v!))]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min, 
+          children: [
+            TextField(controller: n, decoration: const InputDecoration(labelText: "الاسم")), 
+            TextField(controller: p, decoration: const InputDecoration(labelText: "الهاتف")), 
+            DropdownButtonFormField<String>(
+              value: c, 
+              items: currencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), 
+              onChanged: (v) => setState(() => c = v!)
+            )
+          ]
+        ),
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white),
