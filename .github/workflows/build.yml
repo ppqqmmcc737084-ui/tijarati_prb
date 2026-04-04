@@ -3,42 +3,46 @@ name: Build Flutter APK
 on:
   push:
     branches: [ "main", "master" ]
+  workflow_dispatch: # السطر السحري للتشغيل اليدوي
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. الخطوة السحرية: إعطاء صلاحية الأمان لـ Git لحل الخطأ 128
-    - name: Set Git Safe Directory
+    # 1. جلب الكود بالكامل لتجنب أخطاء Git
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 
+
+    # 2. إعطاء الصلاحية القصوى وحل مشكلة 128
+    - name: Fix Git 128 Error
       run: git config --global --add safe.directory '*'
 
-    # 2. جلب الأكواد
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    # 3. إعداد بيئة جافا
+    # 3. إعداد الجافا
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
         java-version: '17'
 
-    # 4. إعداد بيئة فلاتر
+    # 4. إعداد فلاتر (نسخة مستقرة لتجنب أخطاء التحميل)
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
         channel: 'stable'
+        flutter-version: '3.19.6' 
 
-    # 5. جلب المكتبات
-    - name: Get dependencies
+    # 5. تنزيل المكتبات
+    - name: Install Dependencies
       run: flutter pub get
 
-    # 6. بناء التطبيق (النسخة النهائية)
+    # 6. بناء التطبيق الفعلي
     - name: Build APK
       run: flutter build apk --release
 
-    # 7. رفع التطبيق للتحميل
+    # 7. رفع التطبيق النهائي
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
