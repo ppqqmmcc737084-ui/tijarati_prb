@@ -1,24 +1,22 @@
 name: Build Flutter APK
 
 on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch: # السطر السحري للتشغيل اليدوي
+  workflow_dispatch: # هذا السطر السحري يخليك تشغل المصنع بضغطة زر من الموقع بدون ما ترفع كود كل شوي
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. جلب الكود بالكامل لتجنب أخطاء Git
+    # 1. تنزيل الكود بأمان تام
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 
+        persist-credentials: false
 
-    # 2. إعطاء الصلاحية القصوى وحل مشكلة 128
-    - name: Fix Git 128 Error
-      run: git config --global --add safe.directory '*'
+    # 2. إعطاء الصلاحية القصوى للمجلد (هذا اللي بيقتل خطأ 128)
+    - name: Fix Git Permissions
+      run: git config --global --add safe.directory $GITHUB_WORKSPACE
 
     # 3. إعداد الجافا
     - name: Setup Java
@@ -27,22 +25,24 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
 
-    # 4. إعداد فلاتر (نسخة مستقرة لتجنب أخطاء التحميل)
+    # 4. تحميل فلاتر (نسخة ثابتة ما فيها أخطاء)
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
+        flutter-version: '3.19.6'
         channel: 'stable'
-        flutter-version: '3.19.6' 
 
-    # 5. تنزيل المكتبات
-    - name: Install Dependencies
-      run: flutter pub get
+    # 5. تنظيف السيرفر وتحميل المكتبات
+    - name: Flutter Clean & Pub Get
+      run: |
+        flutter clean
+        flutter pub get
 
-    # 6. بناء التطبيق الفعلي
+    # 6. بناء التطبيق
     - name: Build APK
       run: flutter build apk --release
 
-    # 7. رفع التطبيق النهائي
+    # 7. رفع التطبيق للتحميل
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
