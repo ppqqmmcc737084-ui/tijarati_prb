@@ -2,36 +2,43 @@ name: Build Flutter APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main", "master" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    # 1. جلب الأكواد بأحدث إصدار
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Set up Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+    # 2. إعداد بيئة جافا (محدث لـ v4 لتجنب التحذيرات)
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+    # 3. إعداد بيئة فلاتر
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
 
-      - name: Install dependencies
-        run: flutter pub get
+    # 4. جلب المكتبات
+    - name: Get dependencies
+      run: flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
+    # 5. بناء التطبيق (النسخة النهائية)
+    - name: Build APK
+      run: flutter build apk --release
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v3
-        with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+    # 6. رفع التطبيق للتحميل بأحدث أداة v4
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Tijarati-Pro-APK
+        path: build/app/outputs/flutter-apk/app-release.apk
