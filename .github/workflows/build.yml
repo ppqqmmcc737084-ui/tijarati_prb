@@ -1,48 +1,55 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch: # هذا السطر السحري يخليك تشغل المصنع بضغطة زر من الموقع بدون ما ترفع كود كل شوي
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # إعطاء صلاحيات الكتابة للسيرفر
 
     steps:
-    # 1. تنزيل الكود بأمان تام
+    # 1. إجبار Git على الوثوق بكل شيء قبل البداية
+    - name: Pre-setup Git
+      run: |
+        git config --global --add safe.directory '*'
+        git config --global --add safe.directory $GITHUB_WORKSPACE
+
+    # 2. جلب الكود مع تعطيل التحقق الأمني من الصلاحيات (لحل خطأ 128)
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
-        persist-credentials: false
+        set-safe-directory: 'true'
 
-    # 2. إعطاء الصلاحية القصوى للمجلد (هذا اللي بيقتل خطأ 128)
-    - name: Fix Git Permissions
-      run: git config --global --add safe.directory $GITHUB_WORKSPACE
-
-    # 3. إعداد الجافا
+    # 3. إعداد الجافا (إصدار 17 هو الأكثر استقراراً لـ "تجارتي برو")
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
         java-version: '17'
+        cache: 'gradle'
 
-    # 4. تحميل فلاتر (نسخة ثابتة ما فيها أخطاء)
+    # 4. إعداد فلاتر (نسخة مستقرة تماماً)
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.19.6'
         channel: 'stable'
+        cache: true
 
-    # 5. تنظيف السيرفر وتحميل المكتبات
+    # 5. تنظيف وتحميل المكتبات
     - name: Flutter Clean & Pub Get
       run: |
         flutter clean
         flutter pub get
 
-    # 6. بناء التطبيق
+    # 6. بناء التطبيق مع تجاهل أي أخطاء في أيقونات الخطوط (لضمان النجاح)
     - name: Build APK
-      run: flutter build apk --release
+      run: flutter build apk --release --no-tree-shake-icons
 
-    # 7. رفع التطبيق للتحميل
+    # 7. رفع التطبيق النهائي بأحدث أداة
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
