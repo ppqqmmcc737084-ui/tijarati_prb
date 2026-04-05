@@ -1,40 +1,39 @@
 name: Build Flutter APK
 
 on:
+  workflow_dispatch: # زر التشغيل اليدوي
   push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # 🌟 الحل السحري: استخدام بيئة مجهزة مسبقاً فيها الأندرويد والفلاتر جاهزة 100%
-    container:
-      image: ghcr.io/cirruslabs/flutter:stable
-      
+
     steps:
-    # 1. جلب الكود
-    - name: Checkout Code
-      uses: actions/checkout@v4
-      
-    # 2. حل مشكلة أمان Git الشهيرة (خطأ 128) من الجذور
-    - name: Fix Git 128 Error
-      run: git config --global --add safe.directory '*'
-      
-    # 3. تنظيف وتجهيز المكتبات (بدون الحاجة لتحميل فلاتر أو جافا من الصفر)
-    - name: Install Dependencies
-      run: |
-        flutter clean
-        flutter pub get
-        
-    # 4. بناء التطبيق النهائي
-    - name: Build APK
-      run: flutter build apk --release --no-tree-shake-icons
-      
-    # 5. رفع الملف لك عشان تحمله
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: Tijarati-Pro-APK
-        path: build/app/outputs/flutter-apk/app-release.apk
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get Packages
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tijarati-Pro-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
