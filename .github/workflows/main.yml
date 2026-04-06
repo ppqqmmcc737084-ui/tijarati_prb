@@ -1,45 +1,48 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch: # الزر السحري للتشغيل اليدوي
+  workflow_dispatch: # زر التشغيل اليدوي
+  push:
+    branches:
+      - main
+      - master
+
+# إعطاء الصلاحيات كاملة عشان ما يطلع لنا خطأ 128
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. سحب الكود
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      # 2. إعطاء تصريح أمني لتجاوز خطأ 128 الشهير
-      - name: Fix Git Permissions
-        run: git config --global --add safe.directory '*'
-
-      # 3. إعداد الجافا (إصدار 17 هو الأنسب لتطبيقك)
+        
+      # إعداد الجافا (الإصدار 17 هو المتوافق مع فلاتر الجديد)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 4. إعداد فلاتر
+      # إعداد بيئة فلاتر
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 5. تنظيف المشروع وجلب المكتبات
+      # تنظيف المشروع من أي مخلفات قديمة قبل البناء
       - name: Clean & Get Packages
         run: |
           flutter clean
           flutter pub get
 
-      # 6. بناء التطبيق النهائي
+      # بناء التطبيق النهائي
       - name: Build APK
         run: flutter build apk --release
 
-      # 7. رفع التطبيق عشان تحمله
+      # رفع ملف التطبيق عشان تحمله
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
