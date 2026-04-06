@@ -1,9 +1,13 @@
-name: Build Flutter APK
+name: Build Lightweight Flutter APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
-# 🌟 هذا هو المفتاح السحري اللي بيعطي المصنع صلاحيات "مدير" غصب عن نظام الحماية
+# 🌟 إعطاء صلاحيات كاملة عشان نتجاوز قفل GitHub (خطأ 128)
 permissions: write-all
 
 jobs:
@@ -11,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 🌟 سحب الكود بتجاوز القفل الأمني
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
@@ -34,11 +37,13 @@ jobs:
           flutter clean
           flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
+      # 🌟 أمر البناء السحري اللي بيقسم التطبيق ويطلع لك النسخة الخفيفة
+      - name: Build Split APK
+        run: flutter build apk --release --split-per-abi
 
-      - name: Upload APK
+      # 🌟 رفع النسخة الخفيفة المخصصة للجوالات الحديثة عشان تحملها
+      - name: Upload Lightweight APK
         uses: actions/upload-artifact@v4
         with:
-          name: Tijarati-Pro-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Tijarati-Pro-Light-APK
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
