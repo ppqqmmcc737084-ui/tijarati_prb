@@ -15,15 +15,8 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
-subprojects {
-    project.evaluationDependsOn(":app")
-}
 
-tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
-}
-
-// ✅ التعديل السحري بلغة Kotlin لحل مشكلة namespace لمكتبة البلوتوث
+// 🌟 الحل السحري حق البلوتوث (صار مكانه هنا في الوقت الصح قبل التقييم)
 subprojects {
     afterEvaluate {
         if (hasProperty("android")) {
@@ -42,4 +35,13 @@ subprojects {
             }
         }
     }
+}
+
+// ⛔ هذا هو السطر اللي كان يقفل علينا، خليناه تحت التعديل عشان يشتغل صح
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
 }
