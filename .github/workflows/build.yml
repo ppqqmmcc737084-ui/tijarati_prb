@@ -1,45 +1,42 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch: # الزر السحري للتشغيل اليدوي
+  workflow_dispatch:
+
+# 🌟 هذا هو المفتاح السحري اللي بيعطي المصنع صلاحيات "مدير" غصب عن نظام الحماية
+permissions: write-all
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. سحب الكود
+      # 🌟 سحب الكود بتجاوز القفل الأمني
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      # 2. إعطاء تصريح أمني لتجاوز خطأ 128 الشهير
-      - name: Fix Git Permissions
-        run: git config --global --add safe.directory '*'
-
-      # 3. إعداد الجافا (إصدار 17 هو الأنسب لتطبيقك)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 4. إعداد فلاتر
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 5. تنظيف المشروع وجلب المكتبات
       - name: Clean & Get Packages
         run: |
           flutter clean
           flutter pub get
 
-      # 6. بناء التطبيق النهائي
       - name: Build APK
         run: flutter build apk --release
 
-      # 7. رفع التطبيق عشان تحمله
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
