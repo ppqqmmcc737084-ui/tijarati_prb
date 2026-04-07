@@ -19,9 +19,13 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
     final nameCtrl = TextEditingController();
     final priceCtrl = TextEditingController();
     String? base64Image;
+    
+    // ✅ 1. أضفنا هذا المتغير للتحكم في قفل الزر وتشغيل التحميل
+    bool isSaving = false; 
 
     await showDialog(
       context: context,
+      barrierDismissible: false, // يمنع إغلاق النافذة باللمس خارجها أثناء التحميل
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -71,7 +75,6 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                 TextField(
                   controller: nameCtrl, 
                   decoration: const InputDecoration(
-                    // ✅ تم التعديل إلى مثال تجاري احترافي
                     labelText: "اسم المنتج (مثال: شاحن لاسلكي)", 
                     border: OutlineInputBorder()
                   )
@@ -90,27 +93,70 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx), 
+              // ✅ 2. نقفل زر الإلغاء إذا كان جاري الحفظ
+              onPressed: isSaving ? null : () => Navigator.pop(ctx), 
               child: const Text("إلغاء")
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-              onPressed: () {
-                if (nameCtrl.text.isNotEmpty && priceCtrl.text.isNotEmpty) {
+              // ✅ 3. نقفل زر الحفظ إذا كان isSaving يساوي صح
+              onPressed: isSaving ? null : () async {
+                final name = nameCtrl.text.trim();
+                final priceText = priceCtrl.text.trim();
+
+                // 🌟 حماية 1: التحقق من أن الحقول غير فارغة مع تنبيه للمستخدم
+                if (name.isEmpty || priceText.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("الرجاء إدخال اسم وسعر المنتج!", style: TextStyle(fontFamily: 'Cairo')), backgroundColor: Colors.red),
+                  );
+                  return; // نوقف العملية هنا
+                }
+
+                // 🌟 حماية 2: التحقق من أن السعر رقم صحيح (يمنع انهيار التطبيق)
+                final price = double.tryParse(priceText);
+                if (price == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("السعر غير صحيح، الرجاء إدخال أرقام فقط!", style: TextStyle(fontFamily: 'Cairo')), backgroundColor: Colors.red),
+                  );
+                  return;
+                }
+
+                // ✅ 4. هنا نبدأ التحميل (نحدث شاشة النافذة فقط)
+                setModalState(() {
+                  isSaving = true;
+                });
+
+                try {
                   List<dynamic> currentProducts = List.from(_products);
                   currentProducts.add({
                     'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                    'name': nameCtrl.text.trim(),
-                    'price': double.parse(priceCtrl.text.trim()),
+                    'name': name,
+                    'price': price,
                     'image': base64Image,
                   });
                   
-                  box.put('pos_products', currentProducts);
-                  setState(() {});
-                  Navigator.pop(ctx);
+                  // نعطي تأخير بسيط جداً ربع ثانية عشان يكتمل الأنيميشن حق الدائرة ويمنع ضغطات المستخدم السريعة
+                  await Future.delayed(const Duration(milliseconds: 250));
+                  await box.put('pos_products', currentProducts);
+                  
+                  setState(() {}); // تحديث الشاشة الرئيسية بالخلف
+                  Navigator.pop(ctx); // إغلاق النافذة
+                  
+                } catch (e) {
+                  // في حال صار خطأ، نوقف التحميل ونفتح الزر من جديد
+                  setModalState(() {
+                    isSaving = false;
+                  });
                 }
               },
-              child: const Text("حفظ", style: TextStyle(color: Colors.white)),
+              // ✅ 5. تغيير شكل الزر إلى دائرة تحميل إذا كان يتم الحفظ
+              child: isSaving 
+                  ? const SizedBox(
+                      width: 20, 
+                      height: 20, 
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5)
+                    )
+                  : const Text("حفظ", style: TextStyle(color: Colors.white)),
             )
           ],
         ),
@@ -153,7 +199,6 @@ class _ManageProductsPageState extends State<ManageProductsPage> {
                               fit: BoxFit.cover
                             )
                           )
-                        // ✅ تم تغيير الأيقونة لتناسب البضائع والتجارة
                         : const Icon(Icons.inventory_2, size: 40, color: Colors.blueGrey),
                     title: Text(p['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(

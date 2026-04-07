@@ -3,6 +3,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:mobile_scanner/mobile_scanner.dart'; 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart'; // ✅ مكتبة الطابعة
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class CashInvoiceScreen extends StatefulWidget {
   const CashInvoiceScreen({super.key});
@@ -15,10 +17,11 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
   final Box box = Hive.box('tajarti_royal_v1');
   final fmt = intl.NumberFormat("#,##0");
   
-  // سلة المشتريات (الفاتورة الحالية)
   List<Map<String, dynamic>> _cart = [];
+  
+  bool _isSaving = false;
+  bool _isScanning = false;
 
-  // حساب الإجمالي
   double get _totalAmount {
     double total = 0;
     for (var item in _cart) {
@@ -29,6 +32,8 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
 
   // --- 📷 نظام الكاميرا والباركود ---
   void _openScanner() {
+    _isScanning = false; 
+    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -45,8 +50,11 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
             Expanded(
               child: MobileScanner(
                 onDetect: (capture) {
+                  if (_isScanning) return; 
+                  
                   final List<Barcode> barcodes = capture.barcodes;
                   if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                    _isScanning = true; 
                     final code = barcodes.first.rawValue!;
                     Navigator.pop(ctx); 
                     _addItemByBarcode(code); 
@@ -61,7 +69,6 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
   }
 
   void _addItemByBarcode(String code) {
-    // البحث عن المنتج في المخزون المحلي (Hive) للسرعة
     final itemKey = box.keys.firstWhere((k) {
       if (!k.toString().startsWith('inv_')) return false;
       var item = box.get(k);
@@ -77,7 +84,6 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
         return;
       }
 
-      // التحقق هل المنتج موجود مسبقاً في الفاتورة لزيادة كميته فقط
       int existingIndex = _cart.indexWhere((element) => element['id'] == itemKey.toString());
       
       setState(() {
@@ -102,60 +108,156 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
     }
   }
 
-  // --- التحكم بكميات الفاتورة ---
   void _updateCartQty(int index, double delta) {
     setState(() {
       double newQty = _cart[index]['cartQty'] + delta;
       if (newQty > 0 && newQty <= _cart[index]['maxQty']) {
         _cart[index]['cartQty'] = newQty;
       } else if (newQty <= 0) {
-        _cart.removeAt(index); // حذف المنتج إذا وصلت الكمية لصفر
+        _cart.removeAt(index);
       }
     });
   }
 
-  // --- 💰 إتمام البيع وخصم المخزون ---
+  // --- 🖨️ فحص الطابعة الذكي ---
   void _checkout() async {
-    if (_cart.isEmpty) return;
+    if (_cart.isEmpty || _isSaving) return;
 
-    showDialog(context: context, barrierDismissible: false, builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFF0D256C))));
+    setState(() => _isSaving = true);
 
-    for (var cartItem in _cart) {
-      String id = cartItem['id'];
-      double soldQty = cartItem['cartQty'];
-
-      // جلب المنتج من الذاكرة
-      var dbItem = box.get(id);
-      if (dbItem != null) {
-        double currentQty = double.tryParse(dbItem['qty'].toString()) ?? 0;
-        double currentSold = double.tryParse(dbItem['sold'].toString()) ?? 0;
-
-        // تحديث الكميات
-        dbItem['qty'] = currentQty - soldQty;
-        dbItem['sold'] = currentSold + soldQty;
-
-        // الحفظ في الهاتف (Hive)
-        box.put(id, dbItem);
-
-        // الحفظ في السحابة (Firebase) ليعمل التزامن التلقائي
-        try {
-          await FirebaseFirestore.instance.collection('inventory_global').doc(id).set(Map<String, dynamic>.from(dbItem));
-        } catch (e) {
-          debugPrint("Cloud Sync Error: $e");
-        }
-      }
+    if (kIsWeb) {
+      // الويب ما يدعم طابعات البلوتوث المباشرة، نحفظ فقط
+      await _processSale(printReceipt: false);
+      return;
     }
 
-    if (mounted) {
-      Navigator.pop(context); // إغلاق دائرة التحميل
-      setState(() {
-        _cart.clear(); // تفريغ الفاتورة
-      });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Row(children: [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 10), Text("تم البيع بنجاح، وخُصمت الكميات!")]),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ));
+    try {
+      BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
+      bool? isConnected = await bluetooth.isConnected;
+
+      if (isConnected == true) {
+        // ✅ الطابعة متصلة: حفظ وطباعة فورية بدون إزعاج
+        await _processSale(printReceipt: true, bluetooth: bluetooth);
+      } else {
+        // ❌ الطابعة غير متصلة: إظهار النافذة الذكية
+        setState(() => _isSaving = false); // نوقف التحميل عشان تظهر النافذة
+        _showPrinterDialog();
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ في البلوتوث: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  // --- 💡 النافذة المنبثقة الأنيقة ---
+  void _showPrinterDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Row(
+          children: [
+            Icon(Icons.print_disabled, color: Colors.red, size: 28),
+            SizedBox(width: 10),
+            Text("الطابعة غير متصلة!", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: const Text("لم يتم العثور على طابعة بلوتوث متصلة.\nهل تريد حفظ الفاتورة بدون طباعة؟ أم الذهاب للإعدادات لربط الطابعة؟", style: TextStyle(fontSize: 15, height: 1.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: const Text("إلغاء", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _processSale(printReceipt: false); // حفظ فقط
+            }, 
+            child: const Text("حفظ بدون طباعة", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الرجاء الذهاب لصفحة الإعدادات لربط الطابعة.")));
+            },
+            icon: const Icon(Icons.settings_bluetooth, color: Colors.white, size: 18),
+            label: const Text("الإعدادات", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      )
+    );
+  }
+
+  // --- 💰 دالة معالجة البيع والطباعة الفعالة ---
+  Future<void> _processSale({required bool printReceipt, BlueThermalPrinter? bluetooth}) async {
+    setState(() => _isSaving = true);
+
+    try {
+      // 1. خصم المخزون والحفظ
+      for (var cartItem in _cart) {
+        String id = cartItem['id'];
+        double soldQty = cartItem['cartQty'];
+
+        var dbItem = box.get(id);
+        if (dbItem != null) {
+          double currentQty = double.tryParse(dbItem['qty'].toString()) ?? 0;
+          double currentSold = double.tryParse(dbItem['sold'].toString()) ?? 0;
+
+          dbItem['qty'] = currentQty - soldQty;
+          dbItem['sold'] = currentSold + soldQty;
+
+          await box.put(id, dbItem);
+          FirebaseFirestore.instance.collection('inventory_global').doc(id).set(Map<String, dynamic>.from(dbItem)).catchError((e) {
+            debugPrint("Cloud Sync Error: $e");
+          });
+        }
+      }
+
+      // 2. الطباعة السريعة (إذا طلبنا)
+      if (printReceipt && bluetooth != null) {
+        String shopName = box.get('shop_name') ?? "المتجر";
+        bluetooth.printCustom(shopName, 2, 1);
+        bluetooth.printNewLine();
+        bluetooth.printCustom("فاتورة مبيعات", 1, 1);
+        bluetooth.printCustom("--------------------------------", 0, 1);
+        for (var item in _cart) {
+          bluetooth.printLeftRight(item['name'], "${item['cartQty'].toInt()}x   ${fmt.format(item['sell'] * item['cartQty'])}", 1);
+        }
+        bluetooth.printCustom("--------------------------------", 0, 1);
+        bluetooth.printCustom("الاجمالي: ${fmt.format(_totalAmount)}", 2, 1);
+        bluetooth.printNewLine();
+        bluetooth.printNewLine();
+      }
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      if (mounted) {
+        setState(() {
+          _cart.clear(); // تفريغ السلة
+          _isSaving = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 30),
+                const SizedBox(width: 15),
+                Expanded(child: Text(printReceipt ? "تم البيع والطباعة بنجاح!" : "تم البيع بنجاح!", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          )
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("حدث خطأ: $e"), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -167,7 +269,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
         backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
           title: const Text("فاتورة نقدية", style: TextStyle(fontWeight: FontWeight.bold)),
-          backgroundColor: const Color(0xFF0D256C), // تم التعديل للأزرق الملكي
+          backgroundColor: const Color(0xFF0D256C),
           foregroundColor: Colors.white,
           elevation: 0,
           actions: [
@@ -181,7 +283,6 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
         ),
         body: Column(
           children: [
-            // 📋 قائمة المنتجات في الفاتورة
             Expanded(
               child: _cart.isEmpty
                   ? Center(
@@ -196,7 +297,7 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                             onPressed: _openScanner,
                             icon: const Icon(Icons.qr_code_scanner),
                             label: const Text("امسح منتج للبدء"),
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C), foregroundColor: Colors.white), // تم التعديل للأزرق الملكي
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C), foregroundColor: Colors.white),
                           )
                         ],
                       ),
@@ -223,7 +324,6 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                                     ],
                                   ),
                                 ),
-                                // أزرار التحكم بالكمية
                                 Row(
                                   children: [
                                     IconButton(
@@ -238,10 +338,9 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                                   ],
                                 ),
                                 const SizedBox(width: 10),
-                                // الإجمالي الفرعي
                                 Text(
                                   fmt.format(item['sell'] * item['cartQty']),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D256C), fontSize: 16), // تم التعديل للأزرق الملكي
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D256C), fontSize: 16),
                                 ),
                               ],
                             ),
@@ -250,8 +349,6 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                       },
                     ),
             ),
-
-            // 💳 شريط الدفع السفلي
             Container(
               padding: const EdgeInsets.all(20),
               decoration: const BoxDecoration(
@@ -275,12 +372,19 @@ class _CashInvoiceScreenState extends State<CashInvoiceScreen> {
                       height: 55,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D256C), // تم التعديل للأزرق الملكي
+                          backgroundColor: const Color(0xFF0D256C),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                         ),
-                        onPressed: _cart.isEmpty ? null : _checkout,
-                        child: const Text("إتمام البيع", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        onPressed: (_cart.isEmpty || _isSaving) ? null : _checkout,
+                        
+                        child: _isSaving 
+                            ? const SizedBox(
+                                height: 25, 
+                                width: 25, 
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
+                              )
+                            : const Text("إتمام البيع", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],

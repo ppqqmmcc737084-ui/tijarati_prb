@@ -130,16 +130,23 @@ class _ClientDetailState extends State<ClientDetail> {
     int quantity=1; 
     double unitPrice=0; 
     
-    showDialog(context: context, builder: (ctx)=>StatefulBuilder(builder: (context, setDialogState){ 
+    // ✅ قفل الحماية لمنع التكرار
+    bool isSaving = false;
+
+    showDialog(context: context, barrierDismissible: false, builder: (ctx)=>StatefulBuilder(builder: (context, setDialogState){ 
       double currentTotal=type=='out'?(quantity*unitPrice):0; 
       
       return AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: Row(children: [Icon(type=='out'?Icons.remove_circle:Icons.add_circle, color: type=='out'?Colors.red:Colors.green), const SizedBox(width: 10), Text(type=='out'?"قيد دين":"قيد سداد")]), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: noteC, decoration: const InputDecoration(labelText: "البيان", prefixIcon: Icon(Icons.description))), const SizedBox(height: 15), if(type=='out')...[Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(10)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("العدد:", style: TextStyle(fontWeight: FontWeight.bold)), Row(children: [IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: (){if(quantity>1)setDialogState(()=>quantity--);}), Text("$quantity", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), IconButton(icon: const Icon(Icons.add_circle, color: Colors.green), onPressed: ()=>setDialogState(()=>quantity++))])])), const SizedBox(height: 10), TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "السعر", prefixIcon: Icon(Icons.attach_money)), onChanged: (val)=>setDialogState(()=>unitPrice=double.tryParse(val)??0)), const Divider(height: 30), Text("الإجمالي: ${currentTotal.toStringAsFixed(0)}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFF0D256C)))]else...[TextField(controller: priceC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "المبلغ", prefixIcon: Icon(Icons.money)))]])), 
       actions: [
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D256C), foregroundColor: Colors.white), 
-          onPressed: () { 
+          // ✅ إذا جالس يحفظ، عطل الزر تماماً
+          onPressed: isSaving ? null : () async { 
             double finalAmount=type=='out'?(quantity*unitPrice):(double.tryParse(priceC.text)??0); 
             if(finalAmount>0){ 
+              // تشغيل التحميل
+              setDialogState(() => isSaving = true);
+              
               var newTrans = {
                 'type':type, 
                 'amt':finalAmount, 
@@ -151,17 +158,23 @@ class _ClientDetailState extends State<ClientDetail> {
               // 1. الحفظ محلياً وتحديث الشاشة فوراً
               trans.add(newTrans); 
               client!['trans']=trans; 
-              box.put(widget.id, client!); 
+              await box.put(widget.id, client!); 
               setState((){}); 
-              Navigator.pop(ctx); 
-
+              
               // 2. الرفع للسحابة
               FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(widget.id).update({
                 'trans': trans
               }).catchError((e) => debugPrint(e.toString()));
+              
+              // انتظار بسيط لإظهار الدائرة وإغلاق النافذة
+              await Future.delayed(const Duration(milliseconds: 300));
+              if (ctx.mounted) Navigator.pop(ctx); 
             } 
           }, 
-          child: const Text("حفظ")
+          // ✅ تغيير شكل الزر לדائرة تحميل وقت الحفظ
+          child: isSaving 
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              : const Text("حفظ")
         )
       ]); 
     })); 
@@ -182,7 +195,7 @@ class _ClientDetailState extends State<ClientDetail> {
         iconTheme: const IconThemeData(color: Colors.white), 
         title: Text(client!['name'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)), 
         actions: [
-          // ✅ زر الـ QR Code الجديد
+          // ✅ زر الـ QR Code 
           IconButton(
             icon: const Icon(Icons.qr_code, color: Colors.white), 
             tooltip: 'مشاركة QR Code',

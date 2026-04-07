@@ -1,10 +1,10 @@
-import 'dart:convert'; // ✅ للتحويل لصيغة نصية Base64
-import 'dart:typed_data'; // ✅ للتعامل مع بايتات الصورة
+import 'dart:convert'; 
+import 'dart:typed_data'; 
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; 
-import 'package:file_picker/file_picker.dart'; // ✅ مكتبة اختيار الملفات والصور
+import 'package:file_picker/file_picker.dart'; 
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -17,16 +17,15 @@ class _SettingsPageState extends State<SettingsPage> {
   final Box box = Hive.box('tajarti_royal_v1');
   final LocalAuthentication auth = LocalAuthentication();
 
-  // ✅ دالة اختيار الشعار الجديد
   void _pickLogo() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.image,
-      withData: true, // ✅ مهم جداً عشان يشتغل على الويب والجوال بنفس الكفاءة
+      withData: true, 
     );
 
     if (result != null && result.files.first.bytes != null) {
       Uint8List fileBytes = result.files.first.bytes!;
-      String base64Image = base64Encode(fileBytes); // تحويل الصورة لنص لحفظها
+      String base64Image = base64Encode(fileBytes); 
       
       box.put('custom_logo', base64Image);
       
@@ -63,6 +62,124 @@ class _SettingsPageState extends State<SettingsPage> {
           )
         ],
       ),
+    );
+  }
+
+  // 🌟 الدالة الجديدة: إدارة العملات الديناميكية
+  void _showCurrencySettings(BuildContext context) {
+    List<String> baseCurrencies = ['ريال يمني', 'ريال سعودي', 'دولار أمريكي'];
+    List<String> customCurrencies = List<String>.from(box.get('custom_currencies', defaultValue: []));
+    String defaultCurrency = box.get('default_currency', defaultValue: 'ريال يمني');
+    TextEditingController newCurrencyCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          List<String> allCurrencies = [...baseCurrencies, ...customCurrencies];
+          if (!allCurrencies.contains(defaultCurrency)) defaultCurrency = baseCurrencies.first;
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 15),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: Container(width: 40, height: 5, decoration: BoxDecoration(color: Colors.grey[400], borderRadius: BorderRadius.circular(10)))),
+                const SizedBox(height: 15),
+                const Center(child: Text("إعدادات العملات 💱", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D256C)))),
+                const SizedBox(height: 20),
+
+                // اختيار العملة الافتراضية
+                DropdownButtonFormField<String>(
+                  decoration: InputDecoration(
+                    labelText: "العملة الافتراضية (تظهر أولاً في الكروت)",
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                  ),
+                  value: defaultCurrency,
+                  items: allCurrencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => defaultCurrency = val);
+                      box.put('default_currency', val);
+                      setState((){}); // لتحديث الشاشة الرئيسية عند الرجوع
+                    }
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                // إضافة عملة جديدة
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: newCurrencyCtrl,
+                        decoration: InputDecoration(
+                          hintText: "إضافة عملة جديدة (مثال: درهم)",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.all(15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      ),
+                      onPressed: () {
+                        String curr = newCurrencyCtrl.text.trim();
+                        if (curr.isNotEmpty && !allCurrencies.contains(curr)) {
+                          setModalState(() {
+                            customCurrencies.add(curr);
+                            box.put('custom_currencies', customCurrencies);
+                            newCurrencyCtrl.clear();
+                          });
+                          setState((){});
+                        }
+                      },
+                      child: const Icon(Icons.add, color: Colors.white),
+                    )
+                  ],
+                ),
+                const SizedBox(height: 15),
+
+                // قائمة العملات المضافة وحذفها
+                if (customCurrencies.isNotEmpty) ...[
+                  const Text("العملات المضافة يدوياً:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: customCurrencies.map((curr) => Chip(
+                      label: Text(curr, style: const TextStyle(color: Colors.white)),
+                      backgroundColor: const Color(0xFF455A64),
+                      deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white70),
+                      onDeleted: () {
+                        setModalState(() {
+                          customCurrencies.remove(curr);
+                          box.put('custom_currencies', customCurrencies);
+                          // إذا حذف العملة الافتراضية، نرجعها لليمني
+                          if (defaultCurrency == curr) {
+                            defaultCurrency = baseCurrencies.first;
+                            box.put('default_currency', defaultCurrency);
+                          }
+                        });
+                        setState((){});
+                      },
+                    )).toList(),
+                  )
+                ],
+                const SizedBox(height: 20),
+              ],
+            ),
+          );
+        }
+      )
     );
   }
 
@@ -171,14 +288,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    String? customLogo = box.get('custom_logo'); // جلب الشعار المحفوظ
+    String? customLogo = box.get('custom_logo'); 
 
     return Scaffold(
       appBar: AppBar(title: const Text('الإعدادات', style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF0D256C), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white)),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // 🌟 قسم الشعار المخصص (الجديد)
+          // قسم الشعار المخصص 
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             child: Padding(
@@ -245,6 +362,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 10),
 
+          // 🌟 زر إعدادات العملات الجديد
+          Card(
+            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: ListTile(
+              leading: const Icon(Icons.currency_exchange, color: Colors.green, size: 30),
+              title: const Text('إعدادات العملات', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('إضافة عملات وتحديد العملة الافتراضية', style: TextStyle(color: Colors.grey)),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _showCurrencySettings(context),
+            ),
+          ),
+          const SizedBox(height: 10),
+
           // زر الأمان والبصمة
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
@@ -262,9 +392,9 @@ class _SettingsPageState extends State<SettingsPage> {
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             child: ListTile(
-              leading: const Icon(Icons.cloud_upload, color: Colors.green, size: 30),
-              title: const Text('رفع البيانات القديمة للسحابة', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('إذا كان لديك عملاء قبل إنشاء الحساب، ارفعهم الآن'),
+              leading: const Icon(Icons.cloud_upload, color: Colors.blue, size: 30),
+              title: const Text('رفع البيانات للسحابة', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('رفع العملاء والفواتير المحفوظة محلياً'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () async {
                 String? uid = box.get('user_uid');
@@ -276,8 +406,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 int count = 0;
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري الرفع... يرجى الانتظار', textAlign: TextAlign.right), backgroundColor: Colors.blue));
                 
+                // ✅ تأمين الرفع: نتجاهل إعدادات التطبيق كاملة عشان ما تترفع كأنها "عميل"
+                List<String> ignoredKeys = [
+                  'user_uid', 'device_id', 'shop_name', 'app_password', 
+                  'is_password_enabled', 'is_fingerprint_enabled', 
+                  'custom_logo', 'last_cash_invoice_number', 
+                  'hide_guest_warning', 'store_unique_prefix', 
+                  'pos_products', 'custom_currencies', 'default_currency'
+                ];
+
                 for (var key in box.keys) {
-                  if (key != 'user_uid' && key != 'device_id' && key != 'shop_name' && key != 'app_password' && key != 'is_password_enabled' && key != 'is_fingerprint_enabled' && key != 'custom_logo') { // أضفنا custom_logo للتجاهل
+                  if (!ignoredKeys.contains(key.toString())) { 
                     var data = box.get(key);
                     if (data is Map) {
                       await FirebaseFirestore.instance

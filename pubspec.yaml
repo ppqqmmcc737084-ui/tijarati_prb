@@ -44,7 +44,6 @@ dependencies:
   qr_flutter: ^4.1.0
   blue_thermal_printer: ^1.2.3
 
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -52,11 +51,14 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   flutter_lints: ^3.0.0
 
-# ✅ إعدادات الأيقونة الأصلية حقك
+# ✅ إعدادات الأيقونة الاحترافية (Adaptive Icons)
 flutter_launcher_icons:
-  android: true
+  android: "launcher_icon"
   ios: true
   image_path: "assets/images/app_icon.png"
+  # إعدادات الأندرويد الحديث عشان الشعار ياخذ الشاشة كاملة وما يصغر
+  adaptive_icon_background: "#ffffff" # لون الخلفية (أبيض)، وتقدر تغيره للون الكحلي حق تطبيقك "#0D256C"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
 
 # ✅ إعدادات الصور والتصميم
 flutter:
