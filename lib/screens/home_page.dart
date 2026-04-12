@@ -19,6 +19,8 @@ import 'cash_invoices_history_page.dart';
 
 import 'manage_products_page.dart';
 import 'pos_screen.dart';
+// ✅ استدعاء شاشة باقات الكروت الجديدة
+import 'wifi_packages_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -35,10 +37,16 @@ class _HomePageState extends State<HomePage> {
   bool _isBalanceHidden = false;
   String _searchText = "";
   
-  // ✅ 1. قائمة العملات الأساسية والديناميكية
   List<String> _currencies = [];
   
-  String get selectedCurrency => _currencies.isNotEmpty ? _currencies[_currentIndex] : 'ريال يمني';
+  String get selectedCurrency => _currencies.isNotEmpty && _currentIndex < _currencies.length 
+      ? _currencies[_currentIndex] 
+      : 'ريال يمني'; 
+
+  bool get _isViewingSuppliers {
+     bool isSupplierEnabled = box.get('is_supplier_enabled', defaultValue: false);
+     return isSupplierEnabled && _currentIndex == _currencies.length;
+  }
 
   String get currentUserUid {
     String? uid = box.get('user_uid');
@@ -55,28 +63,20 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadCurrencies(); // ✅ تحميل وترتيب العملات أول ما يفتح التطبيق
+    _loadCurrencies(); 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLoginStatus();
     });
   }
 
-  // ✅ 2. دالة ترتيب العملات حسب الإعدادات
   void _loadCurrencies() {
-    // العملات الأساسية اللي ما تتغير
     List<String> baseCurrencies = ['ريال يمني', 'ريال سعودي', 'دولار أمريكي'];
-    
-    // جلب العملات الإضافية اللي ضافها التاجر من الإعدادات (إن وجدت)
     List<String> customCurrencies = List<String>.from(box.get('custom_currencies', defaultValue: []));
-    
-    // جلب العملة الافتراضية اللي اختارها التاجر
     String defaultCurrency = box.get('default_currency', defaultValue: 'ريال يمني');
 
-    // دمج العملات الأساسية مع المخصصة (بدون تكرار)
     Set<String> allCurrenciesSet = {...baseCurrencies, ...customCurrencies};
     List<String> allCurrenciesList = allCurrenciesSet.toList();
 
-    // 🌟 السحر هنا: نحط العملة الافتراضية في أول القائمة دائماً!
     if (allCurrenciesList.contains(defaultCurrency)) {
       allCurrenciesList.remove(defaultCurrency);
       allCurrenciesList.insert(0, defaultCurrency);
@@ -84,7 +84,7 @@ class _HomePageState extends State<HomePage> {
 
     setState(() {
       _currencies = allCurrenciesList;
-      _currentIndex = 0; // نرجع البطاقة للأولى دائماً
+      _currentIndex = 0; 
     });
   }
 
@@ -150,20 +150,41 @@ class _HomePageState extends State<HomePage> {
       'is_password_enabled', 'is_fingerprint_enabled', 
       'custom_logo', 'last_cash_invoice_number', 
       'hide_guest_warning', 'store_unique_prefix', 
-      'pos_products', 'custom_currencies', 'default_currency' // تحديث قائمة الاستثناءات
+      'pos_products', 'custom_currencies', 'default_currency',
+      'expenses', 'sms_balance', 'is_supplier_enabled', 'is_wifi_cards_enabled',
+      'wifi_packages' // ✅ استثناء الباقات من العملاء
     ];
 
     for (var key in box.keys) {
       if (!settingsKeys.contains(key.toString())) {
-        var data = box.get(key);
-        if (data is Map) {
-          var clientMap = Map<String, dynamic>.from(data);
-          clientMap['id'] = key.toString(); 
-          clients.add(clientMap);
+        if (!key.toString().startsWith('cash_inv_') && 
+            !key.toString().startsWith('pos_inv_') &&
+            !key.toString().startsWith('supplier_')) {
+          var data = box.get(key);
+          if (data is Map) {
+            var clientMap = Map<String, dynamic>.from(data);
+            clientMap['id'] = key.toString(); 
+            clients.add(clientMap);
+          }
         }
       }
     }
     return clients;
+  }
+
+  List<Map<String, dynamic>> _getSuppliersFromHive() {
+    List<Map<String, dynamic>> suppliers = [];
+    for (var key in box.keys) {
+      if (key.toString().startsWith('supplier_')) {
+        var data = box.get(key);
+        if (data is Map) {
+          var supMap = Map<String, dynamic>.from(data);
+          supMap['id'] = key.toString(); 
+          suppliers.add(supMap);
+        }
+      }
+    }
+    return suppliers;
   }
 
   Map<String, double> _getDashboardStats(List<Map<String, dynamic>> clients, String currency) {
@@ -197,6 +218,19 @@ class _HomePageState extends State<HomePage> {
     return {'toMe':toMe, 'onMe':onMe, 'net':toMe-onMe}; 
   }
 
+  Map<String, double> _getSupplierData(List<Map<String, dynamic>> suppliers) { 
+    double toMe=0, onMe=0; 
+    for(var c in suppliers){ 
+      if(c['trans']!=null){ 
+        for(var t in c['trans']){ 
+          double amt=double.tryParse(t['amt'].toString())??0; 
+          if(t['type'] == 'out') toMe+=amt; else onMe+=amt; 
+        } 
+      } 
+    } 
+    return {'toMe':toMe, 'onMe':onMe, 'net': onMe-toMe}; 
+  }
+
   void _editOrDeleteClient(String id, Map client) {
     showModalBottomSheet(
       context: context, 
@@ -207,7 +241,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             ListTile(
               leading: const Icon(Icons.edit, color: Colors.blue), 
-              title: const Text("تعديل بيانات العميل"), 
+              title: Text(_isViewingSuppliers ? "تعديل بيانات المورد" : "تعديل بيانات العميل"), 
               onTap: () {
                 Navigator.pop(ctx); 
                 _showEditClientDialog(id, client);
@@ -215,21 +249,21 @@ class _HomePageState extends State<HomePage> {
             ),
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.red), 
-              title: const Text("حذف العميل نهائياً"), 
+              title: Text(_isViewingSuppliers ? "حذف المورد نهائياً" : "حذف العميل نهائياً"), 
               onTap: () {
                 Navigator.pop(ctx);
                 showDialog(
                   context: context, 
                   builder: (dCtx) => AlertDialog(
                     title: const Text("تأكيد الحذف"), 
-                    content: const Text("سيتم حذف العميل وكل ديونه. هل أنت متأكد؟"), 
+                    content: const Text("سيتم الحذف مع كل القيود. هل أنت متأكد؟"), 
                     actions: [
                       TextButton(onPressed: ()=>Navigator.pop(dCtx), child: const Text("إلغاء")), 
                       TextButton(
                         onPressed: () async { 
                           box.delete(id); 
                           try { 
-                            await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); 
+                            FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).delete(); 
                           } catch(e) { debugPrint(e.toString()); }
                           Navigator.pop(dCtx); 
                         }, 
@@ -252,7 +286,7 @@ class _HomePageState extends State<HomePage> {
     showDialog(
       context: context, 
       builder: (ctx) => AlertDialog(
-        title: const Text("تعديل العميل"), 
+        title: Text(_isViewingSuppliers ? "تعديل المورد" : "تعديل العميل"), 
         content: Column(
           mainAxisSize: MainAxisSize.min, 
           children: [
@@ -268,7 +302,7 @@ class _HomePageState extends State<HomePage> {
               client['phone'] = p.text; 
               box.put(id, client); 
               try { 
-                await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); 
+                 FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(id).update({'name': n.text, 'phone': p.text}); 
               } catch (e) { debugPrint(e.toString()); }
               Navigator.pop(ctx); 
             }, 
@@ -301,16 +335,20 @@ class _HomePageState extends State<HomePage> {
         ]
       ),
       drawer: _buildDrawer(),
-      // تحديث تلقائي عند إضافة عملات من الإعدادات
       body: ValueListenableBuilder(
         valueListenable: box.listenable(), 
         builder: (context, Box box, _) {
           
+          bool isSupplierEnabled = box.get('is_supplier_enabled', defaultValue: false);
+          int totalCards = _currencies.length + (isSupplierEnabled ? 1 : 0);
+
           var allClients = _getClientsFromHive();
-          // حماية لو المصفوفة فاضية
+          var allSuppliers = _getSuppliersFromHive();
+          
           if (_currencies.isEmpty) return const Center(child: CircularProgressIndicator());
           
-          var stats = _getDashboardStats(allClients, selectedCurrency);
+          var clientStats = _getDashboardStats(allClients, selectedCurrency);
+          var supplierStats = _getSupplierData(allSuppliers);
 
           return Column(
             children: [
@@ -318,9 +356,19 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), 
                 child: Row(
                   children: [
-                    Expanded(child: _buildInfoChip("إجمالي الديون (لك)", _isBalanceHidden ? "****" : intl.NumberFormat.compact().format(stats['debt']))), 
+                    Expanded(
+                      child: _buildInfoChip(
+                        _isViewingSuppliers ? "إجمالي الديون (عليك)" : "إجمالي الديون (لك)", 
+                        _isBalanceHidden ? "****" : intl.NumberFormat.compact().format(_isViewingSuppliers ? supplierStats['net'] : clientStats['debt'])
+                      )
+                    ), 
                     const SizedBox(width: 10), 
-                    Expanded(child: _buildInfoChip("عدد العملاء", "${stats['count']!.toInt()}"))
+                    Expanded(
+                      child: _buildInfoChip(
+                        _isViewingSuppliers ? "عدد الموردين" : "عدد العملاء", 
+                        "${_isViewingSuppliers ? allSuppliers.length : clientStats['count']!.toInt()}"
+                      )
+                    )
                   ]
                 )
               ),
@@ -330,7 +378,7 @@ class _HomePageState extends State<HomePage> {
                 child: PageView.builder(
                   controller: _pageController,
                   onPageChanged: (i) => setState(() => _currentIndex = i),
-                  itemCount: _currencies.length,
+                  itemCount: totalCards,
                   itemBuilder: (ctx, i) {
                      return AnimatedBuilder(
                        animation: _pageController,
@@ -350,12 +398,63 @@ class _HomePageState extends State<HomePage> {
                            )
                          );
                        },
-                       child: RoyalCard(
-                         currency: _currencies[i],
-                         isBalanceHidden: _isBalanceHidden,
-                         netBalance: _getData(allClients, _currencies[i])['net'] ?? 0.0,
-                         shopName: box.get('shop_name') ?? "المتجر",
-                       ),
+                       child: (isSupplierEnabled && i == _currencies.length) 
+                        ? Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF8E0E00), Color(0xFF1F1C18)], 
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(25), 
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF8E0E00).withOpacity(0.5),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 8),
+                                )
+                              ],
+                            ),
+                            padding: const EdgeInsets.all(25),
+                            child: Stack(
+                              children: [
+                                Positioned(
+                                  right: -20,
+                                  bottom: -20,
+                                  child: Icon(Icons.business_center, size: 120, color: Colors.white.withOpacity(0.05)),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text("سجل الموردين", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                                          child: const Text("المشتريات", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                        )
+                                      ],
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      _isBalanceHidden ? "****" : "${intl.NumberFormat("#,##0").format(supplierStats['net'])} ريال", 
+                                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)
+                                    ),
+                                    const SizedBox(height: 5),
+                                    const Text("إجمالي الديون المستحقة (عليك)", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          )
+                        : RoyalCard(
+                            currency: _currencies[i],
+                            isBalanceHidden: _isBalanceHidden,
+                            netBalance: _getData(allClients, _currencies[i])['net'] ?? 0.0,
+                            shopName: box.get('shop_name') ?? "المتجر",
+                          ),
                      );
                   }
                 ),
@@ -365,15 +464,16 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.only(top: 10, bottom: 10), 
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center, 
-                  children: List.generate(_currencies.length, (index) { 
+                  children: List.generate(totalCards, (index) { 
                     bool isActive = _currentIndex == index; 
+                    bool isSupplierDot = isSupplierEnabled && index == _currencies.length;
                     return AnimatedContainer(
                       duration: const Duration(milliseconds: 300), 
                       margin: const EdgeInsets.symmetric(horizontal: 4), 
                       height: 8, 
                       width: isActive ? 24 : 8, 
                       decoration: BoxDecoration(
-                        color: isActive ? Colors.white : Colors.white.withOpacity(0.3), 
+                        color: isActive ? (isSupplierDot ? Colors.redAccent : Colors.white) : Colors.white.withOpacity(0.3), 
                         borderRadius: BorderRadius.circular(4)
                       )
                     ); 
@@ -396,11 +496,11 @@ class _HomePageState extends State<HomePage> {
                           child: TextField(
                             controller: _searchController, 
                             onChanged: (val) => setState(() => _searchText = val), 
-                            decoration: const InputDecoration(
-                              hintText: "بحث عن عميل...", 
-                              prefixIcon: Icon(Icons.search, color: Color(0xFF1565C0)), 
+                            decoration: InputDecoration(
+                              hintText: _isViewingSuppliers ? "بحث عن مورد..." : "بحث عن عميل...", 
+                              prefixIcon: const Icon(Icons.search, color: Color(0xFF1565C0)), 
                               border: InputBorder.none, 
-                              contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)
                             )
                           )
                         )
@@ -409,13 +509,19 @@ class _HomePageState extends State<HomePage> {
                         padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 10), 
                         child: Row(
                           children: [
-                            Text("قائمة العملاء ($selectedCurrency)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)), 
+                            Text(
+                              _isViewingSuppliers ? "قائمة الموردين (المشتريات)" : "قائمة العملاء ($selectedCurrency)", 
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)
+                            ), 
                             const Spacer(), 
-                            Text("${_getFilteredCount(allClients)} عميل", style: const TextStyle(color: Colors.grey, fontSize: 12))
+                            Text(
+                              _isViewingSuppliers ? "${_getFilteredSuppliers(allSuppliers).length} مورد" : "${_getFilteredCount(allClients)} عميل", 
+                              style: const TextStyle(color: Colors.grey, fontSize: 12)
+                            )
                           ]
                         )
                       ),
-                      Expanded(child: _buildClientList(allClients)),
+                      Expanded(child: _buildClientList(allClients, allSuppliers)),
                     ]
                   )
                 )
@@ -436,8 +542,8 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 15), 
           FloatingActionButton(
             heroTag: "add",
-            backgroundColor: const Color(0xFFD81B60), 
-            onPressed: _addClient, 
+            backgroundColor: _isViewingSuppliers ? const Color(0xFF8E0E00) : const Color(0xFFD81B60), 
+            onPressed: _addClientOrSupplier, 
             child: const Icon(Icons.add, size: 30, color: Colors.white)
           )
         ]
@@ -480,7 +586,7 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-          ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClient();}),
+          ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClientOrSupplier();}),
           
           const Divider(),
           const Padding(
@@ -504,6 +610,23 @@ class _HomePageState extends State<HomePage> {
             }
           ),
           const Divider(),
+
+          // ✅ قسم كروت الإنترنت (يظهر فقط إذا كان مفعلاً في الإعدادات)
+          if (box.get('is_wifi_cards_enabled', defaultValue: false)) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+              child: Text("نظام كروت الشبكات 📶", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_input_antenna, color: Colors.indigo), 
+              title: const Text("إدارة باقات الكروت", style: TextStyle(fontWeight: FontWeight.bold)), 
+              onTap: () {
+                Navigator.pop(context); 
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const WifiPackagesScreen()));
+              }
+            ),
+            const Divider(),
+          ],
 
           ListTile(
             leading: const Icon(Icons.analytics, color: Colors.teal), 
@@ -532,15 +655,15 @@ class _HomePageState extends State<HomePage> {
           ),
           
           const Divider(),
+          ListTile(leading: const Icon(Icons.account_balance_wallet, color: Colors.red), title: const Text("المصروفات"), onTap: () {Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpensesPage()));}),
           ListTile(leading: const Icon(Icons.save, color: Colors.blue), title: const Text("حفظ نسخة احتياطية"), onTap: () => BackupService.createBackup(context)),
           ListTile(leading: const Icon(Icons.restore, color: Colors.orange), title: const Text("استرجاع نسخة"), onTap: () => BackupService.restoreBackup(context, () {
             setState((){});
-            _loadCurrencies(); // إعادة تحميل العملات لو تغيرت بعد الاسترجاع
+            _loadCurrencies(); 
           })),
           const Divider(),
           ListTile(leading: const Icon(Icons.settings, color: Colors.grey), title: const Text("الإعدادات"), onTap: () {
             Navigator.pop(context); 
-            // تحديث العملات بعد الرجوع من الإعدادات
             Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage())).then((_) => _loadCurrencies());
           }),
           const Divider(),
@@ -562,31 +685,49 @@ class _HomePageState extends State<HomePage> {
       return (c['currency']??'ريال يمني')==selectedCurrency && (c['name']??"").toLowerCase().contains(_searchText.toLowerCase()); 
     }).length;
   }
+
+  List<Map<String, dynamic>> _getFilteredSuppliers(List<Map<String, dynamic>> suppliers) {
+    return suppliers.where((s) => (s['name']??"").toLowerCase().contains(_searchText.toLowerCase())).toList();
+  }
   
-  Widget _buildClientList(List<Map<String, dynamic>> allClients) {
-    if (allClients.isEmpty) return const Center(child: Text("لا يوجد عملاء حتى الآن", style: TextStyle(color: Colors.grey, fontSize: 16)));
+  Widget _buildClientList(List<Map<String, dynamic>> allClients, List<Map<String, dynamic>> allSuppliers) {
+    
+    List<Map<String, dynamic>> dataToShow = [];
+    String emptyMessage = "";
 
-    var filteredClients = allClients.where((c) {
-      String curr = c['currency'] ?? 'ريال يمني';
-      String n = c['name'] ?? '';
-      return curr == selectedCurrency && n.toLowerCase().contains(_searchText.toLowerCase());
-    }).toList();
+    if (_isViewingSuppliers) {
+        dataToShow = _getFilteredSuppliers(allSuppliers);
+        emptyMessage = "لا يوجد موردين حتى الآن";
+    } else {
+        dataToShow = allClients.where((c) {
+          String curr = c['currency'] ?? 'ريال يمني';
+          String n = c['name'] ?? '';
+          return curr == selectedCurrency && n.toLowerCase().contains(_searchText.toLowerCase());
+        }).toList();
+        emptyMessage = "لا يوجد عملاء حتى الآن";
+    }
 
-    if (filteredClients.isEmpty) return const Center(child: Text("لا يوجد عملاء مطابقين للبحث", style: TextStyle(color: Colors.grey)));
+    if (dataToShow.isEmpty) return Center(child: Text(emptyMessage, style: const TextStyle(color: Colors.grey, fontSize: 16)));
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-      itemCount: filteredClients.length,
+      itemCount: dataToShow.length,
       itemBuilder: (ctx, i) {
-        var client = filteredClients[i];
-        String id = client['id']; 
+        var person = dataToShow[i];
+        String id = person['id']; 
 
         double bal = 0;
-        if (client['trans'] != null) {
-          for (var t in client['trans']) bal += (t['type'] == 'out' ? 1 : -1) * (double.tryParse(t['amt'].toString()) ?? 0);
+        if (person['trans'] != null) {
+           for (var t in person['trans']) {
+             if (_isViewingSuppliers) {
+                bal += (t['type'] == 'in' ? 1 : -1) * (double.tryParse(t['amt'].toString()) ?? 0);
+             } else {
+                bal += (t['type'] == 'out' ? 1 : -1) * (double.tryParse(t['amt'].toString()) ?? 0);
+             }
+           }
         }
 
-        String name = client['name'] ?? "عميل"; 
+        String name = person['name'] ?? (_isViewingSuppliers ? "مورد" : "عميل"); 
         String firstChar = name.isNotEmpty ? name[0] : "?"; 
         bool isLate = bal >= 50000;
         
@@ -597,7 +738,7 @@ class _HomePageState extends State<HomePage> {
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClientDetail(id: id))),
-            onLongPress: () => _editOrDeleteClient(id, client),
+            onLongPress: () => _editOrDeleteClient(id, person),
             leading: Stack(
               children: [
                 CustomLetterIcon(letter: firstChar), 
@@ -605,10 +746,13 @@ class _HomePageState extends State<HomePage> {
               ]
             ), 
             title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), 
+            subtitle: _isViewingSuppliers ? const Text("مورد", style: TextStyle(color: Colors.grey, fontSize: 12)) : null,
             trailing: Text(
               _isBalanceHidden ? "****" : intl.NumberFormat("#,##0").format(bal.abs()), 
               style: TextStyle(
-                color: bal >= 0 ? const Color(0xFFD81B60) : Colors.green, 
+                color: _isViewingSuppliers 
+                  ? (bal > 0 ? Colors.red[800] : Colors.green) 
+                  : (bal >= 0 ? const Color(0xFFD81B60) : Colors.green), 
                 fontWeight: FontWeight.bold, 
                 fontSize: 16
               )
@@ -619,31 +763,30 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ✅ 3. إضافة العميل مع قفل الحماية لمنع التكرار
-  void _addClient() {
+  void _addClientOrSupplier() {
     final n = TextEditingController();
     final p = TextEditingController();
     String c = selectedCurrency;
     
-    // متغير للتحكم في قفل الزر
     bool isSaving = false;
 
     showDialog(
       context: context,
-      barrierDismissible: false, // يمنع إغلاق النافذة باللمس بالغلط
-      builder: (ctx) => StatefulBuilder( // نستخدم StatefulBuilder عشان نحدث الزر بس
+      barrierDismissible: false, 
+      builder: (ctx) => StatefulBuilder( 
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text("عميل جديد"),
+          title: Text(_isViewingSuppliers ? "إضافة مورد جديد" : "عميل جديد"),
           content: Column(
             mainAxisSize: MainAxisSize.min, 
             children: [
-              TextField(controller: n, decoration: const InputDecoration(labelText: "الاسم")), 
+              TextField(controller: n, decoration: InputDecoration(labelText: _isViewingSuppliers ? "اسم المورد/الشركة" : "الاسم")), 
               TextField(controller: p, decoration: const InputDecoration(labelText: "الهاتف")), 
-              DropdownButtonFormField<String>(
-                value: _currencies.contains(c) ? c : _currencies.first, // حماية لو العملة مش موجودة
-                items: _currencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), 
-                onChanged: (v) => setDialogState(() => c = v!)
-              )
+              if (!_isViewingSuppliers) 
+                DropdownButtonFormField<String>(
+                  value: _currencies.contains(c) ? c : _currencies.first, 
+                  items: _currencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), 
+                  onChanged: (v) => setDialogState(() => c = v!)
+                )
             ]
           ),
           actions: [
@@ -652,35 +795,45 @@ class _HomePageState extends State<HomePage> {
               child: const Text("إلغاء", style: TextStyle(color: Colors.grey))
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isViewingSuppliers ? const Color(0xFF8E0E00) : const Color(0xFF1565C0), 
+                foregroundColor: Colors.white
+              ),
               onPressed: isSaving ? null : () async {
                 if (n.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الرجاء إدخال اسم العميل"), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الرجاء إدخال الاسم"), backgroundColor: Colors.red));
                   return;
                 }
 
-                // 🌟 تشغيل دائرة التحميل وقفل الزر
                 setDialogState(() => isSaving = true);
 
-                String newId = DateTime.now().millisecondsSinceEpoch.toString();
+                String timeId = DateTime.now().millisecondsSinceEpoch.toString();
+                String newId = _isViewingSuppliers ? 'supplier_$timeId' : timeId;
                 
-                // حفظ محلي (سريع جداً)
-                await box.put(newId, {'name': n.text.trim(), 'phone': p.text.trim(), 'currency': c, 'trans': []});
+                await box.put(newId, {
+                  'name': n.text.trim(), 
+                  'phone': p.text.trim(), 
+                  'currency': _isViewingSuppliers ? 'ريال يمني' : c, 
+                  'trans': []
+                });
                 
-                // حفظ سحابي في الخلفية
                 try { 
-                  await FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(newId).set({'name': n.text.trim(), 'phone': p.text.trim(), 'currency': c, 'trans': []}); 
+                  FirebaseFirestore.instance.collection('users').doc(currentUserUid).collection('clients').doc(newId)
+                  .set({
+                    'name': n.text.trim(), 
+                    'phone': p.text.trim(), 
+                    'currency': _isViewingSuppliers ? 'ريال يمني' : c, 
+                    'trans': []
+                  }); 
                 } catch (e) { debugPrint("Firebase Error: $e"); }
                 
-                // تأخير بسيط عشان يكتمل الأنيميشن ويمنع الدبل كليك
                 await Future.delayed(const Duration(milliseconds: 300));
                 
                 if (ctx.mounted) {
                   Navigator.pop(ctx);
-                  setState(() {}); // تحديث الشاشة الرئيسية لإظهار العميل
+                  setState(() {}); 
                 }
               },
-              // 🌟 تحويل الزر לדائرة وقت الحفظ
               child: isSaving 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text("حفظ")

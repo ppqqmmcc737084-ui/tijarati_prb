@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:math'; 
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart'; 
+import '../services/pdf_service.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
@@ -20,6 +23,12 @@ class _PosScreenState extends State<PosScreen> {
   bool _isProcessing = false;
 
   List<dynamic> get _products => box.get('pos_products', defaultValue: []);
+
+  String get currentUserUid {
+    String? uid = box.get('user_uid');
+    if (uid != null && uid.isNotEmpty) return uid;
+    return box.get('device_id') ?? 'local_user';
+  }
 
   void _addToCart(String id) {
     setState(() { cart[id] = (cart[id] ?? 0) + 1; });
@@ -44,7 +53,105 @@ class _PosScreenState extends State<PosScreen> {
     return total;
   }
 
-  // --- 🖨️ نظام الدفع والطباعة المباشر (بدون النسخ واللصق) ---
+  // --- 💾 دالة تجهيز وحفظ الفاتورة ---
+  Map<String, dynamic> _prepareAndSaveInvoice() {
+    String ms = DateTime.now().millisecondsSinceEpoch.toString();
+    String invoiceNumber = "${ms.substring(ms.length - 5)}-${Random().nextInt(9000) + 1000}"; 
+    String invoiceId = 'pos_inv_$ms'; 
+
+    List<Map<String, dynamic>> itemsToSave = [];
+    for (var p in _products) {
+      if (cart.containsKey(p['id'])) {
+        itemsToSave.add({
+          'name': p['name'], 
+          'qty': cart[p['id']], 
+          'price': p['price'], 
+          'total': (p['price'] as double) * cart[p['id']]!
+        });
+      }
+    }
+
+    Map<String, dynamic> invoiceData = {
+      'id': invoiceId, 
+      'type': 'pos_invoice', 
+      'invoiceNumber': invoiceNumber,
+      'clientName': "عميل نقدي (كاشير)", 
+      'phone': "", 
+      'total': _totalPrice,
+      'items': itemsToSave, 
+      'date': DateTime.now().toString(),
+    };
+
+    box.put(invoiceId, invoiceData);
+
+    FirebaseFirestore.instance.collection('users').doc(currentUserUid)
+        .collection('cash_invoices').doc(invoiceId).set(invoiceData)
+        .catchError((e) => debugPrint("Firebase Sync Error: $e"));
+
+    return invoiceData;
+  }
+
+  // 🌟 دالة الترابط: خصم المخزون 🌟
+  Future<void> _deductFromInventory() async {
+    List<dynamic> currentProducts = List.from(_products);
+    bool inventoryChanged = false;
+
+    for (int i = 0; i < currentProducts.length; i++) {
+      String productId = currentProducts[i]['id'];
+      
+      // إذا كان المنتج موجود في سلة المشتريات الحالية
+      if (cart.containsKey(productId)) {
+        int qtySold = cart[productId]!;
+        // نجلب المخزون الحالي (وإذا كان فاضي نعتبره صفر)
+        int currentStock = int.tryParse(currentProducts[i]['stock']?.toString() ?? '0') ?? 0;
+        
+        // ننقص الكمية المباعة
+        int newStock = currentStock - qtySold;
+        
+        // تحديث القيمة في النسخة المحلية
+        currentProducts[i]['stock'] = newStock;
+        inventoryChanged = true;
+      }
+    }
+
+    // إذا صار فيه تغيير، نحفظ المنتجات بالكميات الجديدة في قاعدة البيانات
+    if (inventoryChanged) {
+      await box.put('pos_products', currentProducts);
+    }
+  }
+
+  // --- 📤 نظام المشاركة كـ PDF ---
+  void _goToShare() async {
+    if (cart.isEmpty || _isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    // 1. حفظ الفاتورة
+    _prepareAndSaveInvoice();
+    
+    // 🌟 2. الترابط: خصم المخزون
+    await _deductFromInventory();
+
+    // 3. المشاركة
+    try {
+      Map client = {'name': 'عميل نقدي (كاشير)', 'currency': box.get('default_currency', defaultValue: 'ريال يمني')};
+      Map t = {'amt': _totalPrice, 'note': 'مبيعات نقدية سريعة', 'date': DateTime.now().toString()};
+      
+      await PdfService.shareTransaction(client, t); 
+      
+      if (mounted) {
+        setState(() {
+          cart.clear();
+          _isProcessing = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("تم الحفظ والمشاركة بنجاح!"), backgroundColor: Colors.green));
+      }
+    } catch(e) {
+      setState(() => _isProcessing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ في المشاركة: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  // --- 🖨️ نظام الدفع والطباعة المباشر ---
   void _goToCheckout() async {
     if (cart.isEmpty || _isProcessing) return;
     setState(() => _isProcessing = true);
@@ -59,10 +166,8 @@ class _PosScreenState extends State<PosScreen> {
       bool? isConnected = await bluetooth.isConnected;
 
       if (isConnected == true) {
-        // ✅ الطابعة متصلة: الدفع والطباعة فوراً
         await _processSaleLocally(print: true, bluetooth: bluetooth);
       } else {
-        // ❌ الطابعة غير متصلة: نظهر النافذة الذكية
         setState(() => _isProcessing = false);
         _showSmartPrinterDialog();
       }
@@ -72,7 +177,6 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
-  // --- 💡 النافذة المنبثقة الذكية ---
   void _showSmartPrinterDialog() {
     showDialog(
       context: context,
@@ -91,7 +195,7 @@ class _PosScreenState extends State<PosScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _processSaleLocally(print: false); // حفظ بدون طباعة
+              _processSaleLocally(print: false); 
             }, 
             child: const Text("حفظ فقط", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))
           ),
@@ -109,24 +213,22 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  // --- دالة الحفظ (والطباعة إذا طلبت) ---
   Future<void> _processSaleLocally({required bool print, BlueThermalPrinter? bluetooth}) async {
     setState(() => _isProcessing = true);
     
-    // 1. الخصم من المخزون
-    for (var p in _products) {
-      if (cart.containsKey(p['id'])) {
-        int qtySold = cart[p['id']]!;
-        // كود خصم المخزون هنا بناءً على بنية قاعدة بياناتك
-      }
-    }
+    // 1. حفظ الفاتورة 
+    Map<String, dynamic> invoiceData = _prepareAndSaveInvoice();
 
-    // 2. الطباعة الحرارية السريعة
+    // 🌟 2. الترابط: خصم المخزون تلقائياً
+    await _deductFromInventory();
+
+    // 3. الطباعة الحرارية 
     if (print && bluetooth != null) {
       String shopName = box.get('shop_name') ?? "تجارتي برو";
       bluetooth.printCustom(shopName, 2, 1);
       bluetooth.printNewLine();
       bluetooth.printCustom("فاتورة مبيعات سريعة", 1, 1);
+      bluetooth.printCustom("رقم: #${invoiceData['invoiceNumber']}", 0, 1);
       bluetooth.printCustom("--------------------------------", 0, 1);
       for (var p in _products) {
         if (cart.containsKey(p['id'])) {
@@ -184,6 +286,9 @@ class _PosScreenState extends State<PosScreen> {
                     itemBuilder: (ctx, i) {
                       var p = _products[i];
                       int qty = cart[p['id']] ?? 0;
+                      
+                      // جلب المخزون للعرض فقط للمعلومة (اختياري)
+                      int stock = int.tryParse(p['stock']?.toString() ?? '0') ?? 0;
 
                       return GestureDetector(
                         onTap: () => _addToCart(p['id']), 
@@ -215,6 +320,8 @@ class _PosScreenState extends State<PosScreen> {
                                       children: [
                                         Text(p['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
                                         Text("${p['price']} ريال", style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+                                        // يمكن إظهار المخزون هنا بخط صغير جداً كمعلومة للبائع
+                                        if (stock <= 5) Text("باقي $stock", style: TextStyle(color: Colors.red[300], fontSize: 10)),
                                       ],
                                     ),
                                   )
@@ -237,7 +344,7 @@ class _PosScreenState extends State<PosScreen> {
                   ),
           ),
 
-          // 🌟 الشريط السفلي (مع التحميل الذكي)
+          // 🌟 الشريط السفلي (مع زر المشاركة والطباعة)
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -255,16 +362,32 @@ class _PosScreenState extends State<PosScreen> {
                     Text("${fmt.format(_totalPrice)} ريال", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFFD81B60))),
                   ],
                 ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                  ),
-                  onPressed: (cart.isEmpty || _isProcessing) ? null : _goToCheckout,
-                  icon: _isProcessing ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.receipt_long),
-                  label: Text(_isProcessing ? "جاري الدفع..." : "حساب وطباعة", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(15)
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.share, color: Colors.blue),
+                        onPressed: (cart.isEmpty || _isProcessing) ? null : _goToShare,
+                        tooltip: "مشاركة كـ PDF",
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      ),
+                      onPressed: (cart.isEmpty || _isProcessing) ? null : _goToCheckout,
+                      icon: _isProcessing ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.print),
+                      label: Text(_isProcessing ? "جاري..." : "طباعة", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 )
               ],
             ),

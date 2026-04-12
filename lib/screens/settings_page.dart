@@ -5,6 +5,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; 
 import 'package:file_picker/file_picker.dart'; 
+import 'package:blue_thermal_printer/blue_thermal_printer.dart'; // ✅ مكتبة الطابعة
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ لفحص الويب
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -16,7 +18,11 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final Box box = Hive.box('tajarti_royal_v1');
   final LocalAuthentication auth = LocalAuthentication();
+  
+  // ✅ متغيرات الطابعة
+  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
 
+  // --- دوال الشعار واسم المتجر (كما هي من كودك الأساسي) ---
   void _pickLogo() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -65,7 +71,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // 🌟 الدالة الجديدة: إدارة العملات الديناميكية
+  // --- دوال العملات والطابعة والأمان (كما هي من كودك الأساسي - تم إخفاؤها هنا لترتيب الرد ولكنها موجودة في الكود الكامل تحت) ---
   void _showCurrencySettings(BuildContext context) {
     List<String> baseCurrencies = ['ريال يمني', 'ريال سعودي', 'دولار أمريكي'];
     List<String> customCurrencies = List<String>.from(box.get('custom_currencies', defaultValue: []));
@@ -92,7 +98,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 const Center(child: Text("إعدادات العملات 💱", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D256C)))),
                 const SizedBox(height: 20),
 
-                // اختيار العملة الافتراضية
                 DropdownButtonFormField<String>(
                   decoration: InputDecoration(
                     labelText: "العملة الافتراضية (تظهر أولاً في الكروت)",
@@ -105,13 +110,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (val != null) {
                       setModalState(() => defaultCurrency = val);
                       box.put('default_currency', val);
-                      setState((){}); // لتحديث الشاشة الرئيسية عند الرجوع
+                      setState((){}); 
                     }
                   },
                 ),
                 const SizedBox(height: 20),
 
-                // إضافة عملة جديدة
                 Row(
                   children: [
                     Expanded(
@@ -148,7 +152,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 15),
 
-                // قائمة العملات المضافة وحذفها
                 if (customCurrencies.isNotEmpty) ...[
                   const Text("العملات المضافة يدوياً:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                   const SizedBox(height: 10),
@@ -163,7 +166,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         setModalState(() {
                           customCurrencies.remove(curr);
                           box.put('custom_currencies', customCurrencies);
-                          // إذا حذف العملة الافتراضية، نرجعها لليمني
                           if (defaultCurrency == curr) {
                             defaultCurrency = baseCurrencies.first;
                             box.put('default_currency', defaultCurrency);
@@ -174,6 +176,114 @@ class _SettingsPageState extends State<SettingsPage> {
                     )).toList(),
                   )
                 ],
+                const SizedBox(height: 20),
+              ],
+            ),
+          );
+        }
+      )
+    );
+  }
+
+  void _showPrinterSettings(BuildContext context) async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الطباعة الحرارية غير مدعومة على الويب، استخدم الجوال.", textAlign: TextAlign.right), backgroundColor: Colors.orange));
+      return;
+    }
+
+    List<BluetoothDevice> devices = [];
+    bool isConnected = false;
+    bool isScanning = true;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          void getDevices() async {
+            try {
+              devices = await bluetooth.getBondedDevices();
+              isConnected = await bluetooth.isConnected ?? false;
+            } catch (e) {
+              debugPrint("Bluetooth Error: $e");
+            }
+            if (mounted) {
+              setModalState(() => isScanning = false);
+            }
+          }
+          if (isScanning) getDevices();
+
+          return Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 40, height: 5, decoration: BoxDecoration(color: Colors.grey[400], borderRadius: BorderRadius.circular(10))),
+                const SizedBox(height: 15),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(isConnected ? Icons.print : Icons.print_disabled, color: isConnected ? Colors.green : Colors.red, size: 28),
+                    const SizedBox(width: 10),
+                    const Text("إعدادات الطابعة الحرارية", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text("ملاحظة: يجب إقران الطابعة بالبلوتوث من إعدادات الجوال أولاً.", style: TextStyle(color: Colors.grey, fontSize: 12), textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+
+                if (isScanning)
+                  const CircularProgressIndicator()
+                else if (devices.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(20.0),
+                    child: Text("لم يتم العثور على أجهزة بلوتوث مقترنة.", style: TextStyle(color: Colors.red)),
+                  )
+                else
+                  ...devices.map((device) => Card(
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    child: ListTile(
+                      leading: const Icon(Icons.bluetooth, color: Colors.blue),
+                      title: Text(device.name ?? "جهاز غير معروف"),
+                      subtitle: Text(device.address ?? ""),
+                      trailing: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isConnected ? Colors.grey : Colors.green,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                        ),
+                        onPressed: isConnected ? null : () async {
+                          setModalState(() => isScanning = true); 
+                          try {
+                            await bluetooth.connect(device);
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ تم الاتصال بالطابعة بنجاح!"), backgroundColor: Colors.green));
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("❌ فشل الاتصال بالطابعة، تأكد من تشغيلها."), backgroundColor: Colors.red));
+                          }
+                          getDevices(); 
+                        },
+                        child: Text(isConnected ? "متصل" : "اتصال", style: const TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  )),
+                  
+                const SizedBox(height: 15),
+                if (isConnected)
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+                    ),
+                    onPressed: () async {
+                      await bluetooth.disconnect();
+                      setModalState(() => isScanning = true);
+                      getDevices();
+                    },
+                    icon: const Icon(Icons.bluetooth_disabled, color: Colors.white),
+                    label: const Text("قطع الاتصال", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
                 const SizedBox(height: 20),
               ],
             ),
@@ -286,153 +396,223 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // --- 💡 الدالة السحرية الجديدة (نافذة شحن الباقات) ---
+  void _showTopUpDialog() {
+    String deviceId = box.get('device_id') ?? 'unknown_device';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("شحن باقة الرسائل 📥", textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF0D256C), fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("لشحن رصيد رسائل SMS الخاص بمتجرك، قم بتحويل مبلغ الباقة المطلوبة إلى أحد حساباتنا:", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, height: 1.5)),
+            const SizedBox(height: 15),
+            _buildPaymentMethod("كريمي", "123456789", Colors.green),
+            _buildPaymentMethod("القطيبي", "987654321", Colors.blue),
+            _buildPaymentMethod("شلن (نقطة حاسب)", "M-100-200", Colors.orange),
+            const SizedBox(height: 15),
+            const Text("بعد التحويل، أرسل صورة الإيصال مع (معرف جهازك) للواتساب لتفعيل الباقة فوراً.", style: TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+            const SizedBox(height: 15),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(10)),
+              child: SelectableText("معرف جهازك: $deviceId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            )
+          ],
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("إغلاق", style: TextStyle(color: Colors.grey)))],
+      ),
+    );
+  }
+
+  // --- دالة مساعدة لتنسيق أرقام الحسابات في النافذة أعلاه ---
+  Widget _buildPaymentMethod(String title, String account, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: color.withOpacity(0.3))),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+          Text(account, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  // --- دالة مساعدة لترتيب العناوين في صفحة الإعدادات ---
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10, bottom: 8, top: 15),
+      child: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+    );
+  }
+
+  // ==========================================
+  // 🌟 واجهة المستخدم (Build)
+  // ==========================================
   @override
   Widget build(BuildContext context) {
     String? customLogo = box.get('custom_logo'); 
+    
+    // ✅ جلب المتغيرات الجديدة من قاعدة البيانات (أو إعطائها قيم افتراضية)
+    int smsBalance = box.get('sms_balance', defaultValue: 0);
+    bool isSupplierEnabled = box.get('is_supplier_enabled', defaultValue: false);
+    bool isWifiCardsEnabled = box.get('is_wifi_cards_enabled', defaultValue: false);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('الإعدادات', style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF0D256C), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white)),
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(title: const Text('الإعدادات', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), backgroundColor: const Color(0xFF0D256C), centerTitle: true, iconTheme: const IconThemeData(color: Colors.white), elevation: 0),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(15),
         children: [
-          // قسم الشعار المخصص 
+          
+          // 🚀 1. قسم الاشتراكات والميزات (جبهة الاستثمار الجديدة)
+          _buildSectionTitle("الاشتراكات والميزات الإضافية"),
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(15.0),
-              child: Column(
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.image, color: Color(0xFF0D256C), size: 30),
-                      SizedBox(width: 15),
-                      Text('شعار المتجر (للفواتير)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    ],
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.sms, color: Colors.orange, size: 30),
+                  title: const Text('رصيد رسائل SMS', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('المتبقي: $smsBalance رسالة', style: const TextStyle(color: Colors.grey)),
+                  trailing: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                    onPressed: _showTopUpDialog,
+                    child: const Text("شحن الرصيد", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(height: 15),
-                  GestureDetector(
-                    onTap: _pickLogo,
-                    child: CircleAvatar(
-                      radius: 50,
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage: customLogo != null 
-                          ? MemoryImage(base64Decode(customLogo)) 
-                          : null,
-                      child: customLogo == null 
-                          ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey) 
-                          : null,
-                    ),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.wifi, color: Colors.blue),
+                  title: const Text('نظام كروت الإنترنت (الشبكات)'),
+                  subtitle: const Text('إدارة وبيع كروت الواي فاي'),
+                  activeColor: const Color(0xFF0D256C),
+                  value: isWifiCardsEnabled,
+                  onChanged: (val) => setState(() => box.put('is_wifi_cards_enabled', val)),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.business_center, color: Colors.indigo),
+                  title: const Text('نظام الموردين والمشتريات'),
+                  subtitle: const Text('عزل الموردين وإدارة فواتير الشراء'),
+                  activeColor: const Color(0xFF0D256C),
+                  value: isSupplierEnabled,
+                  onChanged: (val) => setState(() => box.put('is_supplier_enabled', val)),
+                ),
+              ],
+            ),
+          ),
+
+          // 🏪 2. قسم هوية المتجر (شعار واسم)
+          _buildSectionTitle("هوية المتجر"),
+          Card(
+            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.store, color: Color(0xFF0D256C), size: 30),
+                  title: const Text('بيانات المتجر', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(box.get('shop_name') ?? 'لم يتم تعيين اسم المتجر', style: const TextStyle(color: Colors.grey)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => _changeStoreName(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.image, color: Color(0xFF0D256C), size: 30),
+                  title: const Text('شعار المتجر', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('للظهور في الفواتير المطبوعة', style: TextStyle(color: Colors.grey)),
+                  trailing: CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.grey[200],
+                    backgroundImage: customLogo != null ? MemoryImage(base64Decode(customLogo)) : null,
+                    child: customLogo == null ? const Icon(Icons.add_a_photo, size: 20, color: Colors.grey) : null,
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton.icon(
-                        onPressed: _pickLogo, 
-                        icon: const Icon(Icons.edit), 
-                        label: const Text("اختيار شعار")
-                      ),
-                      if (customLogo != null)
-                        TextButton.icon(
-                          onPressed: () { 
-                            box.delete('custom_logo'); 
-                            setState(() {}); 
-                          },
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          label: const Text("حذف الشعار", style: TextStyle(color: Colors.red))
-                        ),
-                    ],
-                  )
-                ],
-              ),
+                  onTap: _pickLogo,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 10),
 
-          // زر بيانات المتجر
+          // ⚙️ 3. الأجهزة والعملات
+          _buildSectionTitle("الأجهزة والعملات"),
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              leading: const Icon(Icons.store, color: Color(0xFF0D256C), size: 30),
-              title: const Text('بيانات المتجر', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(box.get('shop_name') ?? 'لم يتم تعيين اسم المتجر', style: const TextStyle(color: Colors.grey)),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _changeStoreName(context),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.print, color: Colors.blue, size: 30),
+                  title: const Text('الطابعة الحرارية', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('ربط طابعة البلوتوث', style: TextStyle(color: Colors.grey)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => _showPrinterSettings(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.currency_exchange, color: Colors.green, size: 30),
+                  title: const Text('إعدادات العملات', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('تحديد العملة الافتراضية وإضافة المزيد', style: TextStyle(color: Colors.grey)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => _showCurrencySettings(context),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 10),
 
-          // 🌟 زر إعدادات العملات الجديد
+          // 🔒 4. الأمان والسحابة
+          _buildSectionTitle("الأمان والنسخ الاحتياطي"),
           Card(
             elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              leading: const Icon(Icons.currency_exchange, color: Colors.green, size: 30),
-              title: const Text('إعدادات العملات', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('إضافة عملات وتحديد العملة الافتراضية', style: TextStyle(color: Colors.grey)),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _showCurrencySettings(context),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // زر الأمان والبصمة
-          Card(
-            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              leading: const Icon(Icons.security, color: Color(0xFF0D256C), size: 30),
-              title: const Text('الأمان والبصمة', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('إعداد كلمة المرور وبصمة الدخول'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _showSecurityBottomSheet(context),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // زر رفع البيانات القديمة للسحابة
-          Card(
-            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              leading: const Icon(Icons.cloud_upload, color: Colors.blue, size: 30),
-              title: const Text('رفع البيانات للسحابة', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('رفع العملاء والفواتير المحفوظة محلياً'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () async {
-                String? uid = box.get('user_uid');
-                if (uid == null || uid.startsWith('local_')) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يجب تسجيل الدخول أو إنشاء حساب أولاً!', textAlign: TextAlign.right), backgroundColor: Colors.red));
-                  return;
-                }
-                
-                int count = 0;
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري الرفع... يرجى الانتظار', textAlign: TextAlign.right), backgroundColor: Colors.blue));
-                
-                // ✅ تأمين الرفع: نتجاهل إعدادات التطبيق كاملة عشان ما تترفع كأنها "عميل"
-                List<String> ignoredKeys = [
-                  'user_uid', 'device_id', 'shop_name', 'app_password', 
-                  'is_password_enabled', 'is_fingerprint_enabled', 
-                  'custom_logo', 'last_cash_invoice_number', 
-                  'hide_guest_warning', 'store_unique_prefix', 
-                  'pos_products', 'custom_currencies', 'default_currency'
-                ];
-
-                for (var key in box.keys) {
-                  if (!ignoredKeys.contains(key.toString())) { 
-                    var data = box.get(key);
-                    if (data is Map) {
-                      await FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(uid)
-                          .collection('clients')
-                          .doc(key.toString())
-                          .set(Map<String, dynamic>.from(data));
-                      count++;
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.security, color: Color(0xFF0D256C), size: 30),
+                  title: const Text('الأمان والبصمة', style: TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => _showSecurityBottomSheet(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.cloud_upload, color: Colors.blue, size: 30),
+                  title: const Text('رفع البيانات للسحابة', style: TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () async {
+                    String? uid = box.get('user_uid');
+                    if (uid == null || uid.startsWith('local_')) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يجب تسجيل الدخول أولاً!', textAlign: TextAlign.right), backgroundColor: Colors.red));
+                      return;
                     }
-                  }
-                }
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم رفع $count عميل للسحابة بنجاح! 🎉', textAlign: TextAlign.right), backgroundColor: Colors.green));
-              },
+                    int count = 0;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري الرفع...', textAlign: TextAlign.right), backgroundColor: Colors.blue));
+                    
+                    List<String> ignoredKeys = [
+                      'user_uid', 'device_id', 'shop_name', 'app_password', 
+                      'is_password_enabled', 'is_fingerprint_enabled', 'custom_logo', 
+                      'last_cash_invoice_number', 'hide_guest_warning', 'store_unique_prefix', 
+                      'pos_products', 'custom_currencies', 'default_currency',
+                      'sms_balance', 'is_supplier_enabled', 'is_wifi_cards_enabled' // ✅ حماية المتغيرات الجديدة من الرفع كعملاء
+                    ];
+
+                    for (var key in box.keys) {
+                      if (!ignoredKeys.contains(key.toString())) { 
+                        var data = box.get(key);
+                        if (data is Map) {
+                          await FirebaseFirestore.instance.collection('users').doc(uid).collection('clients').doc(key.toString()).set(Map<String, dynamic>.from(data));
+                          count++;
+                        }
+                      }
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم رفع $count عميل للسحابة بنجاح! 🎉', textAlign: TextAlign.right), backgroundColor: Colors.green));
+                  },
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 30),
         ],
       ),
     );

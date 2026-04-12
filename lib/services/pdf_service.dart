@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/services.dart' show rootBundle; // ✅ جلب الخط المحلي
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -11,37 +12,56 @@ class PdfService {
     return amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},');
   }
 
-  // --- دالة التفقيط (تحويل الأرقام لنص) ---
+  // --- ✅ دالة التفقيط الاحترافية (تدعم الملايين بدقة) ---
   static String _numberToWords(double amount, String currency) {
+    if (amount == 0) return "صفر $currency";
+
+    String convertGroup(int n) {
+      List<String> units = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة"];
+      List<String> teens = ["عشرة", "أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر"];
+      List<String> tens = ["", "", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون"];
+      List<String> hundreds = ["", "مائة", "مائتان", "ثلاثمائة", "أربعمائة", "خمسمائة", "ستمائة", "سبعمائة", "ثمانمائة", "تسعمائة"];
+
+      String res = "";
+      if (n >= 100) { res += hundreds[n ~/ 100]; n %= 100; if (n > 0) res += " و "; }
+      if (n >= 10 && n <= 19) { res += teens[n - 10]; } 
+      else {
+        if (n >= 20) {
+          if (n % 10 > 0) res += "${units[n % 10]} و ${tens[n ~/ 10]}";
+          else res += tens[n ~/ 10];
+        } else if (n > 0) { res += units[n]; }
+      }
+      return res;
+    }
+
     int number = amount.toInt();
-    if (number == 0) return "صفر $currency";
-
     List<String> parts = [];
-    List<String> units = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة"];
-    List<String> teens = ["عشرة", "أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر"];
-    List<String> tens = ["", "", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون"];
-    List<String> hundreds = ["", "مائة", "مائتان", "ثلاثمائة", "أربعمائة", "خمسمائة", "ستمائة", "سبعمائة", "ثمانمائة", "تسعمائة"];
-    List<String> thousands = ["", "ألف", "ألفان", "ثلاثة آلاف", "أربعة آلاف", "خمسة آلاف", "ستة آلاف", "سبعة آلاف", "ثمانية آلاف", "تسعة آلاف"];
 
+    // معالجة الملايين
+    if (number >= 1000000) {
+      int m = number ~/ 1000000;
+      if (m == 1) parts.add("مليون");
+      else if (m == 2) parts.add("مليونان");
+      else if (m >= 3 && m <= 10) parts.add("${convertGroup(m)} ملايين");
+      else parts.add("${convertGroup(m)} مليون");
+      number %= 1000000;
+    }
+
+    // معالجة الآلاف
     if (number >= 1000) {
       int th = number ~/ 1000;
-      if (th <= 9) parts.add(thousands[th]); else parts.add("$th ألف");
+      if (th == 1) parts.add("ألف");
+      else if (th == 2) parts.add("ألفان");
+      else if (th >= 3 && th <= 10) parts.add("${convertGroup(th)} آلاف");
+      else parts.add("${convertGroup(th)} ألف");
       number %= 1000;
     }
-    if (number >= 100) {
-      parts.add(hundreds[number ~/ 100]);
-      number %= 100;
-    }
+
+    // معالجة المئات والعشرات والآحاد
     if (number > 0) {
-      if (number < 10) parts.add(units[number]);
-      else if (number < 20) parts.add(teens[number - 10]);
-      else {
-        String part = units[number % 10];
-        if (part.isNotEmpty) part = "$part و ${tens[number ~/ 10]}";
-        else part = tens[number ~/ 10];
-        parts.add(part);
-      }
+      parts.add(convertGroup(number));
     }
+
     return "${parts.join(" و ")} $currency فقط لا غير";
   }
 
@@ -53,31 +73,52 @@ class PdfService {
       height: 65,
       width: 65,
       decoration: pw.BoxDecoration(
-        shape: pw.BoxShape.circle, // شعار دائري احترافي
-        border: pw.Border.all(color: PdfColors.blue900, width: 2), // إطار أزرق فخم
+        shape: pw.BoxShape.circle, 
+        border: pw.Border.all(color: PdfColors.blue900, width: 2), 
         image: pw.DecorationImage(image: logoImage, fit: pw.BoxFit.cover)
       ),
     );
   }
 
+  // ✅ دالة تحميل الخطوط محلياً (تمنع خراب الجدول بدون نت)
+  static Future<pw.ThemeData> _loadPdfTheme() async {
+    try {
+      // حاول تحميل الخط المحلي أولاً (لازم تضيف الخط في مجلد assets/fonts)
+      final regularFontData = await rootBundle.load("assets/fonts/Cairo-Regular.ttf");
+      final boldFontData = await rootBundle.load("assets/fonts/Cairo-Bold.ttf");
+      
+      final regularFont = pw.Font.ttf(regularFontData);
+      final boldFont = pw.Font.ttf(boldFontData);
+      
+      return pw.ThemeData.withFont(base: regularFont, bold: boldFont);
+    } catch (e) {
+      // ⚠️ خطة بديلة (Fallback) في حال نسيت تضيف ملف الخطوط أو صار خطأ
+      // راح يستخدم خط بديل مدعوم في النظام مؤقتاً
+      return pw.ThemeData.withFont(
+        base: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold()
+      );
+    }
+  }
+
+
   // --- 🧾 كشف الحساب VIP ---
   static Future<void> generateStatement(Map client, List trans, String userNote) async {
     final pdf = pw.Document();
-    final font = await PdfGoogleFonts.cairoRegular();
-    final fontBold = await PdfGoogleFonts.cairoBold();
+    
+    // ✅ استخدام الخطوط المحلية بدلاً من الإنترنت
+    final pdfTheme = await _loadPdfTheme();
+    
     final box = Hive.box('tajarti_royal_v1');
     final shopName = box.get('shop_name') ?? "تجارتي برو";
     final shopPhone = box.get('shop_phone') ?? "";
     
-    // ✅ تجهيز الشعار قبل بناء الصفحة لمنع التعليق!
     final customLogo = box.get('custom_logo'); 
     pw.MemoryImage? logoImage;
     if (customLogo != null && customLogo.toString().isNotEmpty) {
       try {
         logoImage = pw.MemoryImage(base64Decode(customLogo));
-      } catch (e) {
-        // تجاهل الخطأ لو الصورة معطوبة
-      }
+      } catch (e) {}
     }
 
     List<pw.TableRow> tableRows = [];
@@ -123,7 +164,7 @@ class PdfService {
       pw.MultiPage( 
         pageFormat: PdfPageFormat.a4,
         textDirection: pw.TextDirection.rtl,
-        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        theme: pdfTheme, // ✅ تطبيق الثيم المحلي
         margin: const pw.EdgeInsets.all(30),
         build: (pw.Context context) {
           return [
@@ -137,7 +178,7 @@ class PdfService {
                   pw.Row(
                     crossAxisAlignment: pw.CrossAxisAlignment.center,
                     children: [
-                      _buildLogoWidget(logoImage), // ✅ عرض الشعار الأنيق
+                      _buildLogoWidget(logoImage), 
                       pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, mainAxisAlignment: pw.MainAxisAlignment.center, children: [
                         pw.Text(shopName, style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                         pw.SizedBox(height: 5),
@@ -168,7 +209,7 @@ class PdfService {
                 border: pw.Border.all(color: PdfColors.blue900, width: 1)
               ),
               child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start, // يمين
+                crossAxisAlignment: pw.CrossAxisAlignment.start, 
                 children: [
                   pw.Text("العميل: ${client['name']}", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                   pw.SizedBox(height: 5),
@@ -196,9 +237,9 @@ class PdfService {
                 mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                 children: [
                   _buildSummaryBox("إجمالي الدفعات (له)", _formatNum(totalCredit), PdfColors.green800),
-                  pw.Container(width: 1, height: 40, color: PdfColors.blue200), // خط فاصل
+                  pw.Container(width: 1, height: 40, color: PdfColors.blue200), 
                   _buildSummaryBox("إجمالي المسحوبات (عليه)", _formatNum(totalDebit), PdfColors.red800),
-                  pw.Container(width: 1, height: 40, color: PdfColors.blue200), // خط فاصل
+                  pw.Container(width: 1, height: 40, color: PdfColors.blue200), 
                   _buildSummaryBox("الرصيد النهائي المطلـوب", _formatNum(runningBalance), PdfColors.blue900, isGrandTotal: true),
                 ]
               )
@@ -232,12 +273,13 @@ class PdfService {
   // --- 💵 سند دين (أزرق موحد وبدون جملة محرجة) ---
   static Future<void> shareTransaction(Map client, Map t) async {
     final pdf = pw.Document();
-    final font = await PdfGoogleFonts.cairoRegular();
-    final fontBold = await PdfGoogleFonts.cairoBold();
+    
+    // ✅ استخدام الخطوط المحلية
+    final pdfTheme = await _loadPdfTheme();
+    
     final box = Hive.box('tajarti_royal_v1');
     final shopName = box.get('shop_name') ?? "متجرنا";
     
-    // ✅ تجهيز الشعار للسند
     final customLogo = box.get('custom_logo'); 
     pw.MemoryImage? logoImage;
     if (customLogo != null && customLogo.toString().isNotEmpty) {
@@ -258,7 +300,7 @@ class PdfService {
       pw.Page(
         pageFormat: PdfPageFormat.a5, 
         textDirection: pw.TextDirection.rtl,
-        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        theme: pdfTheme, // ✅ تطبيق الثيم المحلي
         build: (pw.Context context) {
           return pw.Container(
             padding: const pw.EdgeInsets.all(15),
@@ -269,7 +311,6 @@ class PdfService {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // رأس السند مع الشعار الأنيق
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
@@ -291,7 +332,6 @@ class PdfService {
                 pw.Divider(color: mainColor, thickness: 1.5),
                 pw.SizedBox(height: 10),
                 
-                // المبلغ مع التفقيط
                 pw.Center(
                   child: pw.Column(
                     children: [
@@ -314,7 +354,6 @@ class PdfService {
                 ),
                 pw.SizedBox(height: 25),
                 
-                // التفاصيل
                 _buildRow("مطلوب من العميل:", client['name']),
                 pw.SizedBox(height: 10),
                 _buildRow("وذلك عن (البيان):", t['note']), 
@@ -323,7 +362,6 @@ class PdfService {
                 
                 pw.Spacer(),
                 
-                // التوقيع والباركود (بدون الجملة المحرجة)
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
