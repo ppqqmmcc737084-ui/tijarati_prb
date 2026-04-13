@@ -93,7 +93,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } on FirebaseAuthException catch (e) {
       // ✅ تنبيهات عربية مخصصة للمستخدم
       String msg = 'خطأ في تسجيل الدخول';
-      if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+      if (e.code == 'user-not-found' || e.code == 'invalid-credential' || e.code == 'wrong-password') {
         msg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
@@ -136,9 +136,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // ✅ منع التكرار ومعالجة الأخطاء
       String msg = 'خطأ في إنشاء الحساب';
       if (e.code == 'email-already-in-use') {
-        msg = 'هذا الحساب مسجل بالفعل! الرجاء اختيار "تسجيل الدخول".';
+        msg = 'هذا الإيميل مسجل بالفعل! الرجاء اختيار "تسجيل الدخول".';
       } else if (e.code == 'weak-password') {
         msg = 'كلمة المرور ضعيفة جداً، استخدم 6 أحرف/أرقام على الأقل.';
+      } else if (e.code == 'invalid-email') {
+        msg = 'صيغة البريد الإلكتروني غير صحيحة.';
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
     } finally {
@@ -146,7 +148,31 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // 4. دالة المزامنة
+  // 🔑 4. دالة استعادة كلمة المرور (جديدة)
+  Future<void> _resetPassword() async {
+    if (_emailController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء إدخال بريدك الإلكتروني أولاً في الحقل المخصص.'), backgroundColor: Colors.orange));
+      return;
+    }
+    
+    setState(() => isLoading = true);
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: _emailController.text.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.'), backgroundColor: Colors.green));
+      }
+    } on FirebaseAuthException catch (e) {
+      String msg = 'حدث خطأ أثناء الإرسال.';
+      if (e.code == 'user-not-found') {
+        msg = 'لا يوجد حساب مسجل بهذا البريد الإلكتروني.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // 5. دالة المزامنة
   Future<void> _syncDataFromCloud(String uid) async {
     try {
       var snapshot = await FirebaseFirestore.instance.collection('users').doc(uid).collection('clients').get();
@@ -208,7 +234,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: true,
                 decoration: InputDecoration(labelText: 'كلمة المرور', prefixIcon: const Icon(Icons.lock, color: Color(0xFF0D256C)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15))),
               ),
-              const SizedBox(height: 30),
+              
+              // 🔑 زر استعادة كلمة المرور (يظهر فقط في حالة تسجيل الدخول)
+              if (isLoginMode) 
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _resetPassword,
+                    child: const Text("نسيت كلمة المرور؟", style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                  ),
+                ),
+                
+              const SizedBox(height: 20),
               
               isLoading 
                 ? const CircularProgressIndicator(color: Color(0xFF0D256C))
