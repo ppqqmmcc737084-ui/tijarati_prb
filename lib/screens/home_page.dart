@@ -1,3 +1,4 @@
+import 'dart:async'; // ⬅️ إضافة ضرورية لدالة التنصت (Listener)
 import 'cash_invoice.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -19,8 +20,10 @@ import 'cash_invoices_history_page.dart';
 
 import 'manage_products_page.dart';
 import 'pos_screen.dart';
-// ✅ استدعاء شاشة باقات الكروت الجديدة
+// ✅ استدعاء شاشة باقات الكروت الجديدة (اختياري، إذا كنت لا تزال تريد الاحتفاظ بها)
 import 'wifi_packages_screen.dart';
+// ✅ استدعاء شاشة الاشتراكات (مهم جداً)
+import 'subscriptions_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -33,6 +36,7 @@ class _HomePageState extends State<HomePage> {
   
   final PageController _pageController = PageController(viewportFraction: 0.85);
   final TextEditingController _searchController = TextEditingController();
+  StreamSubscription<DocumentSnapshot>? _userSubscription; // ⬅️ متغير التنصت على تحديثات الفايربيس
   int _currentIndex = 0;
   bool _isBalanceHidden = false;
   String _searchText = "";
@@ -66,7 +70,62 @@ class _HomePageState extends State<HomePage> {
     _loadCurrencies(); 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLoginStatus();
+      _listenToAdminUpdates(); // ⬅️ تفعيل دالة التنصت عند فتح الصفحة
     });
+  }
+
+  // 🌟 دالة التنصت المباشر لتحديثات الإدارة (شحن الرصيد والاشتراكات)
+  void _listenToAdminUpdates() {
+    String uid = currentUserUid;
+    
+    // إذا كان المستخدم زائر محلي (لم يسجل دخول)، لا نتصل بالفايربيس
+    if (uid.startsWith('local_')) return; 
+
+    _userSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.exists && snapshot.data() != null) {
+        var data = snapshot.data() as Map<String, dynamic>;
+
+        bool needsUpdate = false;
+
+        // 1. تحديث رصيد الرسائل إذا تم تغييره من الإدارة
+        if (data.containsKey('sms_balance')) {
+          int newBalance = (data['sms_balance'] ?? 0) is int 
+              ? data['sms_balance'] 
+              : int.tryParse(data['sms_balance'].toString()) ?? 0;
+              
+          if (box.get('sms_balance', defaultValue: 0) != newBalance) {
+            box.put('sms_balance', newBalance);
+            needsUpdate = true;
+          }
+        }
+
+        // 2. تحديث حالة الـ VIP أو أي بيانات أخرى تريد التحكم بها من الفايربيس
+        if (data.containsKey('is_vip')) {
+           bool isVip = data['is_vip'] ?? false;
+           if (box.get('is_vip', defaultValue: false) != isVip) {
+              box.put('is_vip', isVip);
+              needsUpdate = true;
+           }
+        }
+
+        // تحديث الواجهة فقط إذا حصل تغيير حقيقي
+        if (needsUpdate && mounted) {
+          setState(() {});
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _userSubscription?.cancel(); // ⬅️ إيقاف التنصت لتوفير موارد الجهاز
+    _searchController.dispose();
+    _pageController.dispose();
+    super.dispose();
   }
 
   void _loadCurrencies() {
@@ -152,7 +211,7 @@ class _HomePageState extends State<HomePage> {
       'hide_guest_warning', 'store_unique_prefix', 
       'pos_products', 'custom_currencies', 'default_currency',
       'expenses', 'sms_balance', 'is_supplier_enabled', 'is_wifi_cards_enabled',
-      'wifi_packages' // ✅ استثناء الباقات من العملاء
+      'wifi_packages', 'is_vip' 
     ];
 
     for (var key in box.keys) {
@@ -589,6 +648,18 @@ class _HomePageState extends State<HomePage> {
           ListTile(leading: const Icon(Icons.person_add, color: Colors.teal), title: const Text("اضافة حساب"), onTap: (){Navigator.pop(context); _addClientOrSupplier();}),
           
           const Divider(),
+
+          // 🌟 زر الاشتراكات والترقية الجديد 🌟
+          ListTile(
+            leading: const Icon(Icons.workspace_premium, color: Colors.amber), 
+            title: const Text("ترقية الحساب (VIP)", style: TextStyle(fontWeight: FontWeight.bold)), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionsPage()));
+            }
+          ),
+          const Divider(),
+
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
             child: Text("نظام المطاعم والكافيهات", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
