@@ -24,6 +24,8 @@ import 'pos_screen.dart';
 import 'wifi_packages_screen.dart';
 // ✅ استدعاء شاشة الاشتراكات (مهم جداً)
 import 'subscriptions_page.dart';
+// ✅ استدعاء شاشة لوحة تحكم الإدارة (الجديدة)
+import 'admin_dashboard.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -636,9 +638,26 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(15),
-                  child: Image.asset('assets/images/app_icon.png', width: 70, height: 70, fit: BoxFit.cover),
+                GestureDetector(
+                  onLongPress: () {
+                    // 🔍 هذه الحركة بتعلمك الـ ID حقك بالضبط بدون تخمين
+                    print("UID الحقيقي هو: $currentUserUid"); 
+                    
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text("معرف جهازك (UID)"),
+                        content: SelectableText(currentUserUid), // نص قابل للنسخ
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("حسناً"))
+                        ],
+                      ),
+                    );
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(15),
+                    child: Image.asset('assets/images/app_icon.png', width: 70, height: 70, fit: BoxFit.cover),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 const Text('تجارتي برو', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -658,6 +677,7 @@ class _HomePageState extends State<HomePage> {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionsPage()));
             }
           ),
+
           const Divider(),
 
           const Padding(
