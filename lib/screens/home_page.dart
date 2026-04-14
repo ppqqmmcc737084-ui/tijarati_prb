@@ -27,6 +27,108 @@ import 'subscriptions_page.dart';
 // ✅ استدعاء شاشة لوحة تحكم الإدارة (الجديدة)
 import 'admin_dashboard.dart';
 
+// 🌟 الكود المُضاف: صفحة جديدة لعرض سجل مبيعات المطعم (POS) 🌟
+class PosInvoicesHistoryPage extends StatefulWidget {
+  const PosInvoicesHistoryPage({super.key});
+
+  @override
+  State<PosInvoicesHistoryPage> createState() => _PosInvoicesHistoryPageState();
+}
+
+class _PosInvoicesHistoryPageState extends State<PosInvoicesHistoryPage> {
+  final Box box = Hive.box('tajarti_royal_v1');
+
+  @override
+  Widget build(BuildContext context) {
+    List<Map<String, dynamic>> posInvoices = [];
+    for (var key in box.keys) {
+      if (key.toString().startsWith('pos_inv_')) {
+        var data = box.get(key);
+        if (data is Map) {
+          var invMap = Map<String, dynamic>.from(data);
+          invMap['id'] = key.toString();
+          posInvoices.add(invMap);
+        }
+      }
+    }
+
+    posInvoices.sort((a, b) => b['id'].compareTo(a['id']));
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('سجل مبيعات المطعم (POS)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFFE65100), 
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: posInvoices.isEmpty
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long, size: 80, color: Colors.grey),
+                  SizedBox(height: 15),
+                  Text("لا توجد فواتير مطعم مسجلة حتى الآن", style: TextStyle(fontSize: 16, color: Colors.grey)),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(15),
+              itemCount: posInvoices.length,
+              itemBuilder: (context, index) {
+                var invoice = posInvoices[index];
+                
+                double totalAmount = 0.0;
+                List items = invoice['items'] ?? [];
+                for (var item in items) {
+                  double price = double.tryParse(item['price'].toString()) ?? 0.0;
+                  int quantity = int.tryParse(item['quantity'].toString()) ?? 1;
+                  totalAmount += (price * quantity);
+                }
+
+                String dateStr = "تاريخ غير معروف";
+                try {
+                  String timeId = invoice['id'].split('_').last;
+                  DateTime date = DateTime.fromMillisecondsSinceEpoch(int.parse(timeId));
+                  dateStr = intl.DateFormat('yyyy/MM/dd - hh:mm a').format(date);
+                } catch (e) {}
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    leading: const CircleAvatar(
+                      backgroundColor: Color(0xFFFFF3E0),
+                      child: Icon(Icons.fastfood, color: Color(0xFFE65100)),
+                    ),
+                    title: Text("فاتورة #${posInvoices.length - index}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 5),
+                        Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text("عدد الأصناف: ${items.length}", style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                      ],
+                    ),
+                    trailing: Text(
+                      "${intl.NumberFormat("#,##0").format(totalAmount)}",
+                      style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("جاري تطوير شاشة عرض التفاصيل...")));
+                    },
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+// 🌟 نهاية كود الشاشة المضافة 🌟
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -640,19 +742,21 @@ class _HomePageState extends State<HomePage> {
               children: [
                 GestureDetector(
                   onLongPress: () {
-                    // 🔍 هذه الحركة بتعلمك الـ ID حقك بالضبط بدون تخمين
-                    print("UID الحقيقي هو: $currentUserUid"); 
+                    // 👑 الباب السري: تم تحديثه ليقرأ المعرف الجديد الخاص بك
+                    String myAdminId = 'igf1c1vsa7U8rHpn4eTh4K4mMEA3'; 
                     
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text("معرف جهازك (UID)"),
-                        content: SelectableText(currentUserUid), // نص قابل للنسخ
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("حسناً"))
-                        ],
-                      ),
-                    );
+                    if (currentUserUid == myAdminId) {
+                      Navigator.pop(context); 
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboard()));
+                    } else {
+                      // تمويه لباقي المستخدمين
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("إصدار التطبيق: 1.0.0 🚀"), 
+                          duration: Duration(seconds: 1)
+                        )
+                      );
+                    }
                   },
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
@@ -668,7 +772,6 @@ class _HomePageState extends State<HomePage> {
           
           const Divider(),
 
-          // 🌟 زر الاشتراكات والترقية الجديد 🌟
           ListTile(
             leading: const Icon(Icons.workspace_premium, color: Colors.amber), 
             title: const Text("ترقية الحساب (VIP)", style: TextStyle(fontWeight: FontWeight.bold)), 
@@ -700,9 +803,18 @@ class _HomePageState extends State<HomePage> {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageProductsPage()));
             }
           ),
+          // 🌟 الكود المُضاف: الزر الجديد لاستعراض الفواتير 🌟
+          ListTile(
+            leading: const Icon(Icons.receipt, color: Colors.deepOrange), 
+            title: const Text("سجل مبيعات المطعم", style: TextStyle(fontWeight: FontWeight.bold)), 
+            onTap: () {
+              Navigator.pop(context); 
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PosInvoicesHistoryPage()));
+            }
+          ),
+          // 🌟 نهاية التعديل في القائمة الجانبية 🌟
           const Divider(),
 
-          // ✅ قسم كروت الإنترنت (يظهر فقط إذا كان مفعلاً في الإعدادات)
           if (box.get('is_wifi_cards_enabled', defaultValue: false)) ...[
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
