@@ -53,22 +53,46 @@ class _PosScreenState extends State<PosScreen> {
     return total;
   }
 
-  // --- 💾 دالة تجهيز وحفظ الفاتورة ---
-  Map<String, dynamic> _prepareAndSaveInvoice() {
+  // --- 💾 دالة تجهيز وحفظ الفاتورة مع التعديل الجديد لحفظ الصور والإحصائيات ---
+  Future<Map<String, dynamic>> _prepareAndSaveInvoice() async {
     String ms = DateTime.now().millisecondsSinceEpoch.toString();
     String invoiceNumber = "${ms.substring(ms.length - 5)}-${Random().nextInt(9000) + 1000}"; 
     String invoiceId = 'pos_inv_$ms'; 
 
     List<Map<String, dynamic>> itemsToSave = [];
+    
+    // 🔥 جلب المنتجات لتحديث المبيعات
+    var menuProducts = List<Map<String, dynamic>>.from(box.get('pos_products', defaultValue: []));
+    bool menuUpdated = false;
+
     for (var p in _products) {
       if (cart.containsKey(p['id'])) {
+        int qty = cart[p['id']]!;
+        
+        // 1. إضافة كل التفاصيل (بما فيها الصورة) للفاتورة
         itemsToSave.add({
+          'id': p['id'],
           'name': p['name'], 
-          'qty': cart[p['id']], 
+          'qty': qty, // كمية 
+          'quantity': qty, // للتوافق مع شاشة العرض
           'price': p['price'], 
-          'total': (p['price'] as double) * cart[p['id']]!
+          'total': (p['price'] as double) * qty,
+          'image': p['image'], // 🌟 إضافة الصورة للفاتورة
         });
+
+        // 2. تحديث إحصائيات "كم ابتاع" (sales_count)
+        int index = menuProducts.indexWhere((prod) => prod['id'] == p['id']);
+        if (index != -1) {
+          int currentSales = menuProducts[index]['sales_count'] ?? 0;
+          menuProducts[index]['sales_count'] = currentSales + qty;
+          menuUpdated = true;
+        }
       }
+    }
+
+    // حفظ تحديثات المبيعات في המنيو
+    if (menuUpdated) {
+      await box.put('pos_products', menuProducts);
     }
 
     Map<String, dynamic> invoiceData = {
@@ -78,11 +102,11 @@ class _PosScreenState extends State<PosScreen> {
       'clientName': "عميل نقدي (كاشير)", 
       'phone': "", 
       'total': _totalPrice,
-      'items': itemsToSave, 
+      'items': itemsToSave, // الفاتورة الآن تحتوي على الصور
       'date': DateTime.now().toString(),
     };
 
-    box.put(invoiceId, invoiceData);
+    await box.put(invoiceId, invoiceData);
 
     FirebaseFirestore.instance.collection('users').doc(currentUserUid)
         .collection('cash_invoices').doc(invoiceId).set(invoiceData)
@@ -125,8 +149,8 @@ class _PosScreenState extends State<PosScreen> {
     if (cart.isEmpty || _isProcessing) return;
     setState(() => _isProcessing = true);
 
-    // 1. حفظ الفاتورة
-    _prepareAndSaveInvoice();
+    // 1. حفظ الفاتورة وتحديث إحصائيات المبيعات
+    await _prepareAndSaveInvoice();
     
     // 🌟 2. الترابط: خصم المخزون
     await _deductFromInventory();
@@ -216,8 +240,8 @@ class _PosScreenState extends State<PosScreen> {
   Future<void> _processSaleLocally({required bool print, BlueThermalPrinter? bluetooth}) async {
     setState(() => _isProcessing = true);
     
-    // 1. حفظ الفاتورة 
-    Map<String, dynamic> invoiceData = _prepareAndSaveInvoice();
+    // 1. حفظ الفاتورة وتحديث إحصائيات المبيعات
+    Map<String, dynamic> invoiceData = await _prepareAndSaveInvoice();
 
     // 🌟 2. الترابط: خصم المخزون تلقائياً
     await _deductFromInventory();

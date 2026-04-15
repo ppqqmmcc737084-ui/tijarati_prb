@@ -20,8 +20,8 @@ import 'cash_invoices_history_page.dart';
 
 import 'manage_products_page.dart';
 import 'pos_screen.dart';
-// ✅ استدعاء شاشة باقات الكروت الجديدة (اختياري، إذا كنت لا تزال تريد الاحتفاظ بها)
-import 'wifi_packages_screen.dart';
+// ✅ استدعاء شاشة توزيع الكروت الجديدة (نظام الجملة)
+import 'wifi_distribution_screen.dart';
 // ✅ استدعاء شاشة الاشتراكات (مهم جداً)
 import 'subscriptions_page.dart';
 // ✅ استدعاء شاشة لوحة تحكم الإدارة (الجديدة)
@@ -815,17 +815,18 @@ class _HomePageState extends State<HomePage> {
           // 🌟 نهاية التعديل في القائمة الجانبية 🌟
           const Divider(),
 
+          // ✅ قسم كروت الإنترنت (نظام الجملة والتوزيع الجديد)
           if (box.get('is_wifi_cards_enabled', defaultValue: false)) ...[
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-              child: Text("نظام كروت الشبكات 📶", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              child: Text("نظام توزيع كروت الشبكات 📶", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
             ),
             ListTile(
-              leading: const Icon(Icons.settings_input_antenna, color: Colors.indigo), 
-              title: const Text("إدارة باقات الكروت", style: TextStyle(fontWeight: FontWeight.bold)), 
+              leading: const Icon(Icons.wifi_tethering, color: Colors.indigo), 
+              title: const Text("تسليم كروت للمحلات", style: TextStyle(fontWeight: FontWeight.bold)), 
               onTap: () {
                 Navigator.pop(context); 
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const WifiPackagesScreen()));
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const WifiDistributionScreen()));
               }
             ),
             const Divider(),
